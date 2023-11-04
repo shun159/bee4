@@ -77,8 +77,8 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 
 	if (bpf_xdp_get_buff_len(pkt->ctx) < 64)
 		bpf_xdp_adjust_tail(pkt->ctx, 40);
-
 	offset += sizeof(struct arphdr);
+
 	bpf_xdp_store_bytes(pkt->ctx, offset, port->macaddr, sizeof(port->macaddr));
 	offset += sizeof(port->macaddr);
 
@@ -86,6 +86,7 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 	bpf_xdp_store_bytes(pkt->ctx, offset, &ar_spa, sizeof(__u32));
 	offset += sizeof(__u32);
 
+	// Pad ar_tha with 0
 	__u8 z[6] = { 0 };
 	bpf_xdp_store_bytes(pkt->ctx, offset, z, sizeof(port->macaddr));
 	offset += sizeof(port->macaddr);
