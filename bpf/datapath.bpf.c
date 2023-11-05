@@ -75,8 +75,11 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 	arp->ar_pln = 4;
 	arp->ar_op = bpf_ntohs(ARPOP_REQUEST);
 
-	if (bpf_xdp_get_buff_len(pkt->ctx) < 64)
-		bpf_xdp_adjust_tail(pkt->ctx, 40);
+	if (bpf_xdp_get_buff_len(pkt->ctx) > 28) {
+		__u32 data_len = pkt->ctx->data_end - pkt->ctx->data;
+		bpf_xdp_adjust_tail(pkt->ctx, 28 - data_len + 14);
+	}
+
 	offset += sizeof(struct arphdr);
 
 	bpf_xdp_store_bytes(pkt->ctx, offset, port->macaddr, sizeof(port->macaddr));
@@ -133,7 +136,6 @@ static __always_inline int uplink_set_in4_neigh(struct packet *pkt)
 
 	neigh = bpf_map_lookup_elem(&arp_table, &neigh_key);
 	if (!neigh) {
-		bpf_printk("send arp");
 		send_arp_to_local(pkt);
 		return -1;
 	}
