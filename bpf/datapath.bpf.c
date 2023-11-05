@@ -46,56 +46,26 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 		return -1;
 	}
 
-	memset(buf, 0, sizeof(buf));
-	eth = bpf_dynptr_slice_rdwr(pkt->ptr, offset, buf, sizeof(buf));
-	if (!eth) {
-		bpf_printk("failed to create slice");
+	// shrink the packet length to zero before perform packet translation.
+	__u32 data_len = pkt->ctx->data_end - pkt->ctx->data;
+	bpf_xdp_adjust_tail(pkt->ctx, 0);
+
+	__u8 daddr[6];
+	daddr[0] = 0xff;
+	daddr[1] = 0xff;
+	daddr[2] = 0xff;
+	daddr[3] = 0xff;
+	daddr[4] = 0xff;
+	daddr[5] = 0xff;
+	if (write_ethernet_to_ctx(pkt->ptr, &offset, daddr, port->macaddr, ETH_P_ARP))
 		return -1;
-	}
-	offset += sizeof(struct ethhdr);
-
-	memcpy(eth->h_source, port->macaddr, sizeof(eth->h_source));
-	eth->h_dest[0] = 0xff;
-	eth->h_dest[1] = 0xff;
-	eth->h_dest[2] = 0xff;
-	eth->h_dest[3] = 0xff;
-	eth->h_dest[4] = 0xff;
-	eth->h_dest[5] = 0xff;
-	eth->h_proto = bpf_ntohs(ETH_P_ARP);
-
-	arp = bpf_dynptr_slice_rdwr(pkt->ptr, offset, buf, sizeof(buf));
-	if (!arp) {
-		bpf_printk("failed to create slice");
-		return -1;
-	}
-
-	arp->ar_hrd = bpf_ntohs(ARPHRD_ETHER);
-	arp->ar_pro = bpf_ntohs(ETH_P_IP);
-	arp->ar_hln = 6;
-	arp->ar_pln = 4;
-	arp->ar_op = bpf_ntohs(ARPOP_REQUEST);
-
-	if (bpf_xdp_get_buff_len(pkt->ctx) > 28) {
-		__u32 data_len = pkt->ctx->data_end - pkt->ctx->data;
-		bpf_xdp_adjust_tail(pkt->ctx, 28 - data_len + 14);
-	}
-
-	offset += sizeof(struct arphdr);
-
-	bpf_xdp_store_bytes(pkt->ctx, offset, port->macaddr, sizeof(port->macaddr));
-	offset += sizeof(port->macaddr);
 
 	ar_spa = port->in4addr;
-	bpf_xdp_store_bytes(pkt->ctx, offset, &ar_spa, sizeof(__u32));
-	offset += sizeof(__u32);
-
-	// Pad ar_tha with 0
-	__u8 z[6] = { 0 };
-	bpf_xdp_store_bytes(pkt->ctx, offset, z, sizeof(port->macaddr));
-	offset += sizeof(port->macaddr);
-
 	ar_tpa = pkt->inner_in4->daddr;
-	bpf_xdp_store_bytes(pkt->ctx, offset, &ar_tpa, sizeof(__u32));
+	__u8 ar_tha[6] = { 0 };
+	if (write_arp_to_ctx(pkt->ctx, pkt->ptr, &offset, ARPOP_REQUEST, port->macaddr, ar_spa,
+			     ar_tha, ar_tpa))
+		return -1;
 
 	pkt->egress_port = EGRESS_BR_FLOOD;
 
@@ -259,6 +229,12 @@ static __always_inline int uplink_br_forward(struct packet *pkt)
 }
 
 // BPF programs
+
+SEC("xdp")
+int xdp_bridge_in(struct xdp_md *ctx)
+{
+	return XDP_PASS;
+}
 
 SEC("xdp")
 int xdp_uplink_in(struct xdp_md *ctx)

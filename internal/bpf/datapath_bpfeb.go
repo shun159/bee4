@@ -78,6 +78,7 @@ type datapathSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type datapathProgramSpecs struct {
+	XdpBridgeIn *ebpf.ProgramSpec `ebpf:"xdp_bridge_in"`
 	XdpUplinkIn *ebpf.ProgramSpec `ebpf:"xdp_uplink_in"`
 }
 
@@ -135,11 +136,13 @@ func (m *datapathMaps) Close() error {
 //
 // It can be passed to loadDatapathObjects or ebpf.CollectionSpec.LoadAndAssign.
 type datapathPrograms struct {
+	XdpBridgeIn *ebpf.Program `ebpf:"xdp_bridge_in"`
 	XdpUplinkIn *ebpf.Program `ebpf:"xdp_uplink_in"`
 }
 
 func (p *datapathPrograms) Close() error {
 	return _DatapathClose(
+		p.XdpBridgeIn,
 		p.XdpUplinkIn,
 	)
 }

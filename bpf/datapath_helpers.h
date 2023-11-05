@@ -96,6 +96,27 @@ parse_ethernet(struct bpf_dynptr *ptr, __u64 *offset, struct ethhdr *ethhdr)
 }
 
 static __always_inline int
+write_ethernet_to_ctx(struct bpf_dynptr *ptr, __u32 *offset,
+        __u8 daddr[6], __u8 saddr[6], __u16 proto)
+{
+	struct ethhdr *eth;
+	__u8 buf[sizeof(struct ethhdr)];
+
+	memset(buf, 0, sizeof(buf));
+	eth = bpf_dynptr_slice_rdwr(ptr, *offset, buf, sizeof(buf));
+	if (!eth)
+		return -1;
+
+    memcpy(&eth->h_dest, daddr, sizeof(eth->h_dest));
+    memcpy(&eth->h_source, saddr, sizeof(eth->h_source));
+    eth->h_proto = bpf_ntohs(proto);
+
+	*offset += sizeof(struct ethhdr);
+
+    return 0;
+}
+
+static __always_inline int
 parse_arp(struct bpf_dynptr *ptr, __u64 *offset, struct arphdr *arphdr)
 {
     if (bpf_dynptr_read(arphdr, sizeof(*arphdr), ptr, *offset, 0))
@@ -106,6 +127,39 @@ parse_arp(struct bpf_dynptr *ptr, __u64 *offset, struct arphdr *arphdr)
         *offset += (6 * 2); // length of ar_{s,t}ha
     if (arphdr->ar_pro == bpf_ntohs(ETH_P_IP))
         *offset += (4 * 2); // length of ar_{s,t}pa
+
+    return 0;
+}
+
+static __always_inline int
+write_arp_to_ctx(struct xdp_md *ctx, struct bpf_dynptr *ptr, __u32 *offset,
+        __u8 op, __u8 ar_sha[6], __u32 ar_spa, __u8 ar_tha[6], __u32 ar_tpa)
+{
+	struct arphdr *arp;
+	__u8 buf[sizeof(struct arphdr) + 20];
+
+	memset(buf, 0, sizeof(buf));
+	arp = bpf_dynptr_slice_rdwr(ptr, *offset, buf, sizeof(buf));
+	if (!arp)
+		return -1;
+
+	arp->ar_hrd = bpf_ntohs(ARPHRD_ETHER);
+	arp->ar_pro = bpf_ntohs(ETH_P_IP);
+	arp->ar_hln = 6;
+	arp->ar_pln = 4;
+	arp->ar_op = bpf_ntohs(op);
+	*offset += sizeof(struct arphdr);
+
+	bpf_xdp_store_bytes(ctx, *offset, ar_sha, 6);
+	*offset += 6;
+
+	bpf_xdp_store_bytes(ctx, *offset, &ar_spa, sizeof(__u32));
+	*offset += 4;
+
+	bpf_xdp_store_bytes(ctx, *offset, ar_tha, 6);
+	*offset += 6;
+
+	bpf_xdp_store_bytes(ctx, *offset, &ar_tpa, sizeof(__u32));
 
     return 0;
 }
