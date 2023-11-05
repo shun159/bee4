@@ -37,12 +37,13 @@ type dpIface struct {
 }
 
 type Datapath struct {
-	routes          []RoutingEntry
-	brIface         *dpIface
-	dsIface         *dpIface
-	brMember        []*dpIface
-	tuntap          *Tun
-	uplink_xdp_link *link.Link
+	routes           []RoutingEntry
+	brIface          *dpIface
+	dsIface          *dpIface
+	brMember         []*dpIface
+	tuntap           *Tun
+	uplink_xdp_link  *link.Link
+	bridge_xdp_links []*link.Link
 }
 
 func Open(filename string) (*Datapath, error) {
@@ -64,8 +65,16 @@ func (dp *Datapath) Start() error {
 	if err != nil {
 		return fmt.Errorf("failed to attach uplink_xdp: %s", err)
 	}
-
 	dp.uplink_xdp_link = &uplink_xdp_link
+
+	for _, iface := range dp.brMember {
+		l, err := bpf.AttachXdpBridgeInFn(iface.devname)
+		if err != nil {
+			return fmt.Errorf("failed to attach bridge_xdp: %s", err)
+		}
+		dp.bridge_xdp_links = append(dp.bridge_xdp_links, &l)
+	}
+
 	return nil
 }
 

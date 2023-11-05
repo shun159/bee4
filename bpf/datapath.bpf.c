@@ -233,6 +233,20 @@ static __always_inline int uplink_br_forward(struct packet *pkt)
 SEC("xdp")
 int xdp_bridge_in(struct xdp_md *ctx)
 {
+	struct packet pkt = { 0 };
+	struct bpf_dynptr ptr;
+	__u64 offset = 0;
+	int ret;
+
+	pkt.ctx = ctx;
+	pkt.offset = &offset;
+	pkt.ptr = &ptr;
+
+	if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr))
+		return XDP_DROP;
+
+	bpf_printk("receive from br ports");
+
 	return XDP_PASS;
 }
 
@@ -241,7 +255,6 @@ int xdp_uplink_in(struct xdp_md *ctx)
 {
 	struct packet pkt = { 0 };
 	struct bpf_dynptr ptr;
-	struct ethhdr ethhdr;
 	__u64 offset = 0;
 	int ret;
 
@@ -249,10 +262,8 @@ int xdp_uplink_in(struct xdp_md *ctx)
 	pkt.offset = &offset;
 	pkt.ptr = &ptr;
 
-	if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr)) {
-		bpf_printk("failed to init ptr");
+	if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr))
 		return XDP_DROP;
-	}
 
 	if (process_uplink_packet(&pkt)) {
 		bpf_printk("failed to process packet");

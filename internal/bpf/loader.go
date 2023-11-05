@@ -135,6 +135,14 @@ func AttachXdpUplinkInFn(ifname string) (link.Link, error) {
 	return attachXdp(ifname, prog.XdpUplinkIn)
 }
 
+func AttachXdpBridgeInFn(ifname string) (link.Link, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return attachXdp(ifname, prog.XdpBridgeIn)
+}
+
 // private functions
 
 func getMap() (*datapathMaps, error) {
