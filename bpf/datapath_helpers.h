@@ -95,6 +95,21 @@ parse_ethernet(struct bpf_dynptr *ptr, __u64 *offset, struct ethhdr *ethhdr)
     return 0;
 }
 
+static __always_inline int
+parse_arp(struct bpf_dynptr *ptr, __u64 *offset, struct arphdr *arphdr)
+{
+    if (bpf_dynptr_read(arphdr, sizeof(*arphdr), ptr, *offset, 0))
+        return -1;
+    *offset += sizeof(struct arphdr);
+
+    if (arphdr->ar_hrd == bpf_ntohs(ARPHRD_ETHER))
+        *offset += (6 * 2); // length of ar_{s,t}ha
+    if (arphdr->ar_pro == bpf_ntohs(ETH_P_IP))
+        *offset += (4 * 2); // length of ar_{s,t}pa
+
+    return 0;
+}
+
 static __always_inline bool 
 ipv4_is_fragmemt(const struct iphdr *ip)
 {
