@@ -44,27 +44,35 @@ func LoadBPF() error {
 }
 
 func GetRouteTable() (*ebpf.Map, error) {
-	if maps == nil {
-		return nil, fmt.Errorf("BPF maps is not loaded yet")
+	m, err := getMap()
+	if err != nil {
+		return nil, err
 	}
-
-	return maps.RouteTable, nil
+	return m.RouteTable, nil
 }
 
 func GetPortConfigMap() (*ebpf.Map, error) {
-	if maps == nil {
-		return nil, fmt.Errorf("BPF maps is not loaded yet")
+	m, err := getMap()
+	if err != nil {
+		return nil, err
 	}
-
-	return maps.PortConfig, nil
+	return m.PortConfig, nil
 }
 
 func GetL3PortMap() (*ebpf.Map, error) {
-	if maps == nil {
-		return nil, fmt.Errorf("BPF maps is not loaded yet")
+	m, err := getMap()
+	if err != nil {
+		return nil, err
 	}
+	return m.L3PortMap, nil
+}
 
-	return maps.L3PortMap, nil
+func GetTxPortMap() (*ebpf.Map, error) {
+	m, err := getMap()
+	if err != nil {
+		return nil, err
+	}
+	return m.TxPort, nil
 }
 
 func AddRoute(prefLen, pref uint32, nhType int, nhAddr uint32) error {
@@ -75,12 +83,7 @@ func AddRoute(prefLen, pref uint32, nhType int, nhAddr uint32) error {
 	if err != nil {
 		return err
 	}
-
-	if err := m.Put(lpmKey, lpmVal); err != nil {
-		return err
-	}
-
-	return nil
+	return m.Put(lpmKey, lpmVal)
 }
 
 func AddPort(ifindex int, in4addr uint32, macaddr [6]uint8, routable bool) error {
@@ -100,12 +103,7 @@ func AddPort(ifindex int, in4addr uint32, macaddr [6]uint8, routable bool) error
 	if err != nil {
 		return err
 	}
-
-	if err := m.Put(key, val); err != nil {
-		return err
-	}
-
-	return nil
+	return m.Put(key, val)
 }
 
 func AddL3Port(ifindex, l3if_type int) error {
@@ -116,13 +114,17 @@ func AddL3Port(ifindex, l3if_type int) error {
 	if err != nil {
 		return err
 	}
+	return m.Put(key, val)
+}
 
-	if err := m.Put(key, val); err != nil {
+func AddTxBrPort(ifindex int) error {
+	ifidx := uint32(ifindex)
+
+	m, err := GetTxPortMap()
+	if err != nil {
 		return err
 	}
-
-	return nil
-
+	return m.Put(&ifidx, &ifidx)
 }
 
 func AttachXdpUplinkInFn(ifname string) (link.Link, error) {
@@ -134,6 +136,13 @@ func AttachXdpUplinkInFn(ifname string) (link.Link, error) {
 }
 
 // private functions
+
+func getMap() (*datapathMaps, error) {
+	if maps == nil {
+		return nil, fmt.Errorf("BPF maps is not loaded yet")
+	}
+	return maps, nil
+}
 
 func getProgram() (*datapathPrograms, error) {
 	if prog == nil {

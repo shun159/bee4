@@ -185,7 +185,7 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 		pbytes[idx] = b
 	}
 
-	pref := binary.BigEndian.Uint32(pbytes[:])
+	pref := binary.LittleEndian.Uint32(pbytes[:])
 	if err := bpf.AddPort(tun.ifindex, pref, macaddr, true); err != nil {
 		return fmt.Errorf("failed to config bridging interface: %s: %s", irb.DevName, err)
 	}
@@ -217,6 +217,10 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 
 		if err := bpf.AddPort(iface.Index, 0, macaddr, false); err != nil {
 			return fmt.Errorf("failed to config bridging interface: %s: %s", name, err)
+		}
+
+		if err := bpf.AddTxBrPort(iface.Index); err != nil {
+			return fmt.Errorf("failed to add %s as tx_port: %s", name, err)
 		}
 
 		briface := &dpIface{}

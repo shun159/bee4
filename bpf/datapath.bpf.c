@@ -93,7 +93,8 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 
 	ar_tpa = pkt->inner_in4->daddr;
 	bpf_xdp_store_bytes(pkt->ctx, offset, &ar_tpa, sizeof(__u32));
-	offset += sizeof(__u32);
+
+	pkt->egress_port = EGRESS_BR_FLOOD;
 
 	return 0;
 }
@@ -181,21 +182,6 @@ static __always_inline int uplink_push_ethhdr(struct packet *pkt)
 	return 0;
 }
 
-static __always_inline int uplink_forward(struct packet *pkt)
-{
-	if (pkt->should_be_encaped) {
-		if (uplink_ipv6_decap(pkt))
-			return -1;
-		if (uplink_push_ethhdr(pkt))
-			return -1;
-	}
-
-	if (pkt->should_be_encaped)
-		uplink_set_in4_neigh(pkt);
-
-	return 0;
-}
-
 static __always_inline int process_ip6(struct packet *pkt)
 {
 	struct ipv6hdr ip6hdr;
@@ -209,8 +195,15 @@ static __always_inline int process_ip6(struct packet *pkt)
 	pkt->in6 = &ip6hdr;
 	pkt->should_be_encaped = pkt->l4_proto == IPPROTO_IPIP;
 
-	if (uplink_forward(pkt))
-		return -1;
+	if (pkt->should_be_encaped) {
+		if (uplink_ipv6_decap(pkt))
+			return -1;
+		if (uplink_push_ethhdr(pkt))
+			return -1;
+	}
+
+	if (pkt->should_be_encaped)
+		uplink_set_in4_neigh(pkt);
 
 	return 0;
 }
@@ -242,6 +235,27 @@ static __always_inline int process_uplink_packet(struct packet *pkt)
 	return 0;
 }
 
+static __always_inline int uplink_br_forward(struct packet *pkt)
+{
+	int ret;
+
+	if (pkt->egress_port == EGRESS_BR_FLOOD) {
+		__u64 f = BPF_F_BROADCAST | BPF_F_EXCLUDE_INGRESS;
+		bpf_redirect_map(&tx_port, 0, f);
+		ret = XDP_REDIRECT;
+	} else if (pkt->egress_port == EGRESS_SLOW_PATH) {
+		ret = XDP_PASS;
+	} else if (pkt->egress_port > 0) {
+		bpf_redirect_map(&tx_port, pkt->egress_port, 0);
+		ret = XDP_REDIRECT;
+	} else {
+		// shouldn't be happen
+		ret = XDP_DROP;
+	}
+
+	return ret;
+}
+
 // BPF programs
 
 SEC("xdp")
@@ -251,6 +265,7 @@ int xdp_uplink_in(struct xdp_md *ctx)
 	struct bpf_dynptr ptr;
 	struct ethhdr ethhdr;
 	__u64 offset = 0;
+	int ret;
 
 	pkt.ctx = ctx;
 	pkt.offset = &offset;
@@ -266,7 +281,8 @@ int xdp_uplink_in(struct xdp_md *ctx)
 		return XDP_DROP;
 	}
 
-	return XDP_TX;
+	ret = uplink_br_forward(&pkt);
+	return ret;
 }
 
 char __license[] SEC("license") = "Dual MIT/GPL";

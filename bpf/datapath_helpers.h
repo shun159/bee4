@@ -55,11 +55,19 @@
 #define IPPROTO_DSTOPTS		60	/* IPv6 destination options	*/
 #define IPPROTO_MH		135	/* IPv6 mobility header		*/
 
+enum egress_type {
+    // pass the packet to the normal network stack.
+    EGRESS_SLOW_PATH = 0xffffff00,
+    // flood the packet to the all port of `br_member` devmap.
+    EGRESS_BR_FLOOD     = 0xfffffffd,
+};
+
 typedef struct {
 	__u16 src, dst;
 } flow_ports_t;
 
 struct packet {
+    // contexts
     struct xdp_md *ctx;
 	struct bpf_dynptr *ptr;
 	__u64 *offset;
@@ -67,6 +75,7 @@ struct packet {
     // metadata fields
     __u16 l3_proto;
     __u8 l4_proto;
+    __u32 egress_port;
     bool is_frag;
     bool should_be_encaped;
 

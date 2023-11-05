@@ -23,6 +23,7 @@ enum l3if_type {
     L3IF_UPLINK,
 };
 
+
 enum nh_type {
     NH_UNDEF,
     NH_LOCAL,
@@ -60,7 +61,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_DEVMAP);
     __uint(key_size, sizeof(__u32));
     __uint(value_size, sizeof(__u32));
-    __uint(max_entries, 4);
+    __uint(max_entries, 256);
 } tx_port SEC(".maps");
 
 struct {
