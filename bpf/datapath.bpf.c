@@ -153,13 +153,29 @@ static __always_inline int uplink_push_ethhdr(struct packet *pkt)
 	return 0;
 }
 
-static __always_inline int process_ip6(struct packet *pkt)
+static __always_inline int process_bridge_l3(struct packet *pkt)
+{
+	switch (pkt->l3_proto) {
+	case ETH_P_ARP:
+		return 0;
+	case ETH_P_IP:
+		return 0;
+	case ETH_P_IPV6:
+		return 0;
+	default:
+		// unsupported protocol
+		return -1;
+	}
+
+	return 0;
+}
+
+static __always_inline int process_uplink_l3(struct packet *pkt)
 {
 	struct ipv6hdr ip6hdr;
 
 	if (pkt->l3_proto != ETH_P_IPV6)
 		return -1;
-
 	if (parse_ipv6(pkt->ptr, pkt->offset, &ip6hdr, &pkt->l4_proto, &pkt->is_frag))
 		return -1;
 
@@ -194,13 +210,9 @@ static __always_inline int process_l2(struct packet *pkt)
 
 static __always_inline int process_uplink_packet(struct packet *pkt)
 {
-	__u8 l4_proto;
-	bool is_frag;
-
 	if (process_l2(pkt))
 		return -1;
-
-	if (process_ip6(pkt))
+	if (process_uplink_l3(pkt))
 		return -1;
 
 	return 0;
@@ -227,6 +239,14 @@ static __always_inline int uplink_br_forward(struct packet *pkt)
 	return ret;
 }
 
+static __always_inline int process_bridge_packet(struct packet *pkt)
+{
+	if (process_l2(pkt))
+		return -1;
+
+	return 0;
+}
+
 // BPF programs
 
 SEC("xdp")
@@ -243,8 +263,8 @@ int xdp_bridge_in(struct xdp_md *ctx)
 
 	if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr))
 		return XDP_DROP;
-
-	bpf_printk("receive from br ports");
+	if (process_bridge_packet(&pkt))
+		return XDP_DROP;
 
 	return XDP_PASS;
 }
@@ -263,7 +283,6 @@ int xdp_uplink_in(struct xdp_md *ctx)
 
 	if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr))
 		return XDP_DROP;
-
 	if (process_uplink_packet(&pkt)) {
 		bpf_printk("failed to process packet");
 		return XDP_DROP;
