@@ -22,28 +22,34 @@
 #include "datapath_helpers.h"
 #include "datapath_maps.h"
 
+// Retrieves port configuration data from eBPF maps using a given port key.
+// Returns NULL if the port configuration is not found.
 static __always_inline struct port_conf *get_port_conf(__u32 port_key)
 {
 	__u32 *pkt_ifidx = bpf_map_lookup_elem(&l3_port_map, &port_key);
 	if (!pkt_ifidx) {
-		bpf_printk("pkt_ifidx not found");
+		bpf_printk("get_port_conf: l3_port_map lookup failed for port_key %u\n", port_key);
 		return NULL;
 	}
 
 	struct port_conf *port = bpf_map_lookup_elem(&port_config, pkt_ifidx);
 	if (!port) {
-		bpf_printk("port not found");
+		bpf_printk("get_port_conf: port_config lookup failed for ifidx %u\n", *pkt_ifidx);
 	}
 
 	return port;
 }
 
+// Reduces packet size to the minimum, preparing the packet buffer for new data.
+// This is typically used before constructing new packet contents.
 static __always_inline int shrink_packet_to_zero(struct xdp_md *ctx)
 {
 	__u32 data_len = ctx->data_end - ctx->data;
 	return bpf_xdp_adjust_tail(ctx, 42 - data_len);
 }
 
+// Prepares and sends an ARP request or reply based on provided parameters.
+// Constructs the ARP packet by setting the Ethernet and ARP headers.
 static __always_inline int send_arp(struct packet *pkt, struct port_conf *port, __u8 target_mac[6],
 				    __u32 target_ip, __u16 op_code)
 {
@@ -72,6 +78,8 @@ static __always_inline int send_arp(struct packet *pkt, struct port_conf *port, 
 	return 0;
 }
 
+// Broadcasts an ARP request to all nodes in the local network to resolve an IP address.
+// This is used to find the MAC address corresponding to a given IP address.
 static __always_inline int broadcast_arp_request(struct packet *pkt)
 {
 	struct port_conf *port = get_port_conf(1);
@@ -91,6 +99,8 @@ static __always_inline int broadcast_arp_request(struct packet *pkt)
 	return 0;
 }
 
+// Processes an incoming ARP request and sends an ARP reply if the target IP address
+// matches the local port's configured IP address.
 static __always_inline int process_arp_request(struct packet *pkt, __u8 ar_sha[6], __u32 ar_spa,
 					       __u32 ar_tpa)
 {
@@ -114,20 +124,25 @@ static __always_inline int process_arp_request(struct packet *pkt, __u8 ar_sha[6
 	return 0;
 }
 
+// Processes an ARP reply by updating the ARP table with the sender's MAC and IP address.
+// This information is used for future packet forwarding decisions.
 static __always_inline int process_arp_reply(struct packet *pkt, __u8 ar_sha[6], __u32 ar_spa)
 {
 	struct arp_entry neigh;
-
 	neigh.last_updated = bpf_ktime_get_ns();
 	memcpy(&neigh.port_no, &pkt->ctx->ingress_ifindex, sizeof(__u32));
 	memcpy(&neigh.macaddr, ar_sha, sizeof(neigh.macaddr));
 
-	if (bpf_map_update_elem(&arp_table, &ar_spa, &neigh, BPF_ANY))
+	if (bpf_map_update_elem(&arp_table, &ar_spa, &neigh, BPF_ANY)) {
+		bpf_printk("process_arp_reply: arp_table update failed for ip %u\n", ar_spa);
 		return -1;
+	}
 
 	return 0;
 }
 
+// Main function for ARP processing that routes to specific functions for handling
+// ARP requests and replies based on the operation code.
 static __always_inline int process_arp(struct packet *pkt)
 {
 	struct arphdr arphdr;
@@ -159,6 +174,8 @@ static __always_inline int process_arp(struct packet *pkt)
 	return ret;
 }
 
+// Determines the next hop based on IPv4 routing and sets the packet's Ethernet header
+// for the next hop. If no entry is found in the ARP table, initiates ARP resolution.
 static __always_inline int uplink_set_in4_neigh(struct packet *pkt)
 {
 	struct route_key_in4 k;
@@ -176,8 +193,10 @@ static __always_inline int uplink_set_in4_neigh(struct packet *pkt)
 	k.addr = daddr;
 
 	nh = (struct lpm_nh_in4 *)bpf_map_lookup_elem(&route_table, &k);
-	if (!nh)
+	if (!nh) {
+		bpf_printk("uplink_set_in4_neigh: route_table lookup failed for ip %u\n", daddr);
 		return -1;
+	}
 
 	switch (nh->nh_type) {
 	case NH_LOCAL:
@@ -196,8 +215,11 @@ static __always_inline int uplink_set_in4_neigh(struct packet *pkt)
 
 	egress_port = neigh->port_no;
 	port = bpf_map_lookup_elem(&port_config, &egress_port);
-	if (!port)
+	if (!port) {
+		bpf_printk("uplink_set_in4_neigh: port_config lookup failed for egress_port %u\n",
+			   egress_port);
 		return -1;
+	}
 
 	if (write_ethernet_to_ctx(pkt->ptr, &offset, neigh->macaddr, port->macaddr, ETH_P_IP))
 		return -1;
@@ -207,6 +229,8 @@ static __always_inline int uplink_set_in4_neigh(struct packet *pkt)
 	return 0;
 }
 
+// Removes the IPv6 encapsulation from a packet, revealing the inner IPv4 packet.
+// Used when the uplink receives an encapsulated IPv4 packet within an IPv6 packet.
 static __always_inline int uplink_ipv6_decap(struct packet *pkt)
 {
 	struct iphdr iph;
@@ -326,6 +350,8 @@ static __always_inline int process_bridge_packet(struct packet *pkt)
 
 // BPF programs
 
+// XDP program entry point for packets arriving on the bridge interface.
+// It processes packets at layer 2, layer 3, and determines their forwarding.
 SEC("xdp")
 int xdp_bridge_in(struct xdp_md *ctx)
 {
@@ -347,6 +373,8 @@ int xdp_bridge_in(struct xdp_md *ctx)
 	return ret;
 }
 
+// XDP program entry point for packets arriving on the uplink interface.
+// It processes packets at layer 2, layer 3, and determines their forwarding.
 SEC("xdp")
 int xdp_uplink_in(struct xdp_md *ctx)
 {
