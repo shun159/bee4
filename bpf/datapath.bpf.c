@@ -29,7 +29,6 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 	struct port_conf *port;
 
 	__u32 ar_spa, ar_tpa;
-	__u8 buf[sizeof(struct ethhdr)];
 	__u32 *pkt_ifidx;
 	__u32 offset = 0;
 	__u32 port_key = 1;
@@ -48,7 +47,7 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 
 	// shrink the packet length to zero before perform packet translation.
 	__u32 data_len = pkt->ctx->data_end - pkt->ctx->data;
-	bpf_xdp_adjust_tail(pkt->ctx, 0);
+	bpf_xdp_adjust_tail(pkt->ctx, 42 - data_len);
 
 	__u8 daddr[6];
 	daddr[0] = 0xff;
