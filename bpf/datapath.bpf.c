@@ -28,6 +28,7 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 	struct arphdr *arp;
 	struct port_conf *port;
 
+	__u8 ar_sha[6];
 	__u32 ar_spa, ar_tpa;
 	__u32 *pkt_ifidx;
 	__u32 offset = 0;
@@ -61,14 +62,61 @@ static __always_inline int send_arp_to_local(struct packet *pkt)
 
 	ar_spa = port->in4addr;
 	ar_tpa = pkt->inner_in4->daddr;
+	memcpy(ar_sha, port->macaddr, sizeof(ar_sha));
 	__u8 ar_tha[6] = { 0 };
-	if (write_arp_to_ctx(pkt->ctx, pkt->ptr, &offset, ARPOP_REQUEST, port->macaddr, ar_spa,
-			     ar_tha, ar_tpa))
+	if (write_arp_to_ctx(pkt->ctx, pkt->ptr, &offset, ARPOP_REQUEST, ar_sha, ar_spa, ar_tha,
+			     ar_tpa))
 		return -1;
 
 	pkt->egress_port = EGRESS_BR_FLOOD;
 
 	return 0;
+}
+
+static __always_inline int process_arp_reply(struct packet *pkt, struct arphdr *arp, __u8 ar_sha[6],
+					     __u32 ar_spa)
+{
+	struct arp_entry neigh;
+
+	if (bpf_ntohs(arp->ar_pro) != ETH_P_IP)
+		return -1;
+
+	neigh.last_updated = bpf_ktime_get_ns();
+	memcpy(&neigh.port_no, &pkt->ctx->ingress_ifindex, sizeof(__u32));
+	memcpy(&neigh.macaddr, ar_sha, sizeof(neigh.macaddr));
+
+	if (bpf_map_update_elem(&arp_table, &ar_spa, &neigh, BPF_ANY))
+		return -1;
+
+	return 0;
+}
+
+static __always_inline int process_arp(struct packet *pkt)
+{
+	struct arphdr arphdr;
+	int ret;
+
+	__u8 ar_sha[6], ar_tha[6];
+	__u32 ar_spa, ar_tpa;
+
+	if (parse_arp(pkt->ptr, pkt->offset, &arphdr, ar_sha, &ar_spa, ar_tha, &ar_tpa))
+		ret = -1;
+
+	bpf_printk("ar_op: %d", bpf_ntohs(arphdr.ar_op));
+	bpf_printk("ar_spa: %d", ar_spa);
+	bpf_printk("ar_sha: %x:%x:%x:%x:%x:%x", ar_sha[0], ar_sha[1], ar_sha[2], ar_sha[3],
+		   ar_sha[4], ar_sha[5]);
+
+	switch (bpf_ntohs(arphdr.ar_op)) {
+	case ARPOP_REPLY:
+		ret = process_arp_reply(pkt, &arphdr, ar_sha, ar_spa);
+	case ARPOP_REQUEST:
+		return 0;
+	default:
+		return -1;
+	}
+
+	return ret;
 }
 
 static __always_inline int uplink_set_in4_neigh(struct packet *pkt)
@@ -155,9 +203,13 @@ static __always_inline int uplink_push_ethhdr(struct packet *pkt)
 
 static __always_inline int process_bridge_l3(struct packet *pkt)
 {
+	int ret;
+
+	bpf_printk("l3_proto: %x", pkt->l3_proto);
+
 	switch (pkt->l3_proto) {
 	case ETH_P_ARP:
-		return 0;
+		ret = process_arp(pkt);
 	case ETH_P_IP:
 		return 0;
 	case ETH_P_IPV6:
@@ -167,7 +219,7 @@ static __always_inline int process_bridge_l3(struct packet *pkt)
 		return -1;
 	}
 
-	return 0;
+	return ret;
 }
 
 static __always_inline int process_uplink_l3(struct packet *pkt)
@@ -242,6 +294,8 @@ static __always_inline int uplink_br_forward(struct packet *pkt)
 static __always_inline int process_bridge_packet(struct packet *pkt)
 {
 	if (process_l2(pkt))
+		return -1;
+	if (process_bridge_l3(pkt))
 		return -1;
 
 	return 0;

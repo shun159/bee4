@@ -37,8 +37,15 @@
 #define IP_MF (0x2000)
 
 #define ARPHRD_ETHER 1
-#define ARPOP_REQUEST 1
-#define ARPOP_REPLY 2
+
+/* ARP protocol opcodes. */
+#define	ARPOP_REQUEST	1		/* ARP request			*/
+#define	ARPOP_REPLY	2		/* ARP reply			*/
+#define	ARPOP_RREQUEST	3		/* RARP request			*/
+#define	ARPOP_RREPLY	4		/* RARP reply			*/
+#define	ARPOP_InREQUEST	8		/* InARP request		*/
+#define	ARPOP_InREPLY	9		/* InARP reply			*/
+#define	ARPOP_NAK	10		/* (ATM)ARP NAK			*/
 
 #define ETH_P_IP 0x0800 /* Internet Protocol packet */
 #define ETH_P_IPV6 0x86DD /* IPv6 over bluebook       */
@@ -117,16 +124,32 @@ write_ethernet_to_ctx(struct bpf_dynptr *ptr, __u32 *offset,
 }
 
 static __always_inline int
-parse_arp(struct bpf_dynptr *ptr, __u64 *offset, struct arphdr *arphdr)
+parse_arp(struct bpf_dynptr *ptr, __u64 *offset, struct arphdr *arphdr,
+        __u8 ar_sha[], __u32 *ar_spa, __u8 ar_tha[], __u32 *ar_tpa)
 {
     if (bpf_dynptr_read(arphdr, sizeof(*arphdr), ptr, *offset, 0))
         return -1;
     *offset += sizeof(struct arphdr);
 
-    if (arphdr->ar_hrd == bpf_ntohs(ARPHRD_ETHER))
-        *offset += (6 * 2); // length of ar_{s,t}ha
-    if (arphdr->ar_pro == bpf_ntohs(ETH_P_IP))
-        *offset += (4 * 2); // length of ar_{s,t}pa
+    if (!(arphdr->ar_hrd == bpf_ntohs(ARPHRD_ETHER)) && 
+            (arphdr->ar_pro == bpf_ntohs(ETH_P_IP)))
+        return -1;
+
+    if (bpf_dynptr_read(ar_sha, 6, ptr, *offset, 0))
+        return -1;
+    *offset += 6;
+
+    if (bpf_dynptr_read(ar_spa, 4, ptr, *offset, 0))
+        return -1;
+    *offset += 4;
+
+    if (bpf_dynptr_read(ar_tha, 6, ptr, *offset, 0))
+        return -1;
+    *offset += 6;
+
+    if (bpf_dynptr_read(ar_tpa, 4, ptr, *offset, 0))
+        return -1;
+    *offset += 4;
 
     return 0;
 }
