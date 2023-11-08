@@ -107,18 +107,36 @@ write_ethernet_to_ctx(struct bpf_dynptr *ptr, __u32 *offset,
         __u8 daddr[6], __u8 saddr[6], __u16 proto)
 {
 	struct ethhdr *eth;
-	__u8 buf[sizeof(struct ethhdr)];
+	__u8 buf[sizeof(*eth)];
 
 	memset(buf, 0, sizeof(buf));
 	eth = bpf_dynptr_slice_rdwr(ptr, *offset, buf, sizeof(buf));
 	if (!eth)
 		return -1;
 
-    memcpy(&eth->h_dest, daddr, sizeof(eth->h_dest));
-    memcpy(&eth->h_source, saddr, sizeof(eth->h_source));
+    memcpy(eth->h_dest, daddr, 6);
+    memcpy(eth->h_source, saddr, 6);
     eth->h_proto = bpf_ntohs(proto);
 
 	*offset += sizeof(struct ethhdr);
+
+    return 0;
+}
+
+static __always_inline int
+push_ethernet(struct bpf_dynptr *ptr, struct xdp_md *ctx, __u16 proto)
+{
+	struct ethhdr *ethhdr;
+	__u8 buf[sizeof(struct ethhdr)];
+
+	// make head for ethernet header
+	bpf_xdp_adjust_head(ctx, 0 - (int)sizeof(struct ethhdr));
+
+	memset(buf, 0, sizeof(buf));
+	ethhdr = bpf_dynptr_slice_rdwr(ptr, 0, buf, sizeof(buf));
+	if (!ethhdr)
+		return -1;
+	ethhdr->h_proto = bpf_htons(proto);
 
     return 0;
 }
