@@ -36,6 +36,25 @@
 #define memcmp(buf1, buf2, n) __builtin_memcmp((buf1), (buf2), (n))
 #endif
 
+#define MAC_CMP(dst, src)  \
+     ((((uint16_t *)dst)[0] == ((uint16_t *)src)[0]) && \
+     (((uint16_t *)dst)[1] == ((uint16_t *)src)[1]) &&  \
+     (((uint16_t *)dst)[2] == ((uint16_t *)src)[2]))  \
+
+#define IS_MAC_ZERO(dst) \
+     ((((uint16_t *)dst)[0] == 0) && \
+     (((uint16_t *)dst)[1] == 0) &&  \
+     (((uint16_t *)dst)[2] == 0))  \
+
+#define IS_MAC_BCAST(dst) \
+     ((((uint16_t *)dst)[0] == 0xffff) && \
+     (((uint16_t *)dst)[1] == 0xffff) &&  \
+     (((uint16_t *)dst)[2] == 0xffff))  \
+
+#define IS_MAC_BMCAST(dst) \
+     (((uint8_t *)dst)[0]& 0x1)
+
+
 #define IP_OFFSET_MASK (0x1FFF)
 #define IP_MF (0x2000)
 
