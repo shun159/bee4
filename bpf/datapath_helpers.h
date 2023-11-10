@@ -103,7 +103,7 @@ parse_ethernet(struct bpf_dynptr *ptr, __u64 *offset, struct ethhdr *ethhdr)
 }
 
 static __always_inline int
-write_ethernet_to_ctx(struct bpf_dynptr *ptr, __u32 *offset,
+set_ethernet(struct bpf_dynptr *ptr, __u32 *offset,
         __u8 daddr[6], __u8 saddr[6], __u16 proto)
 {
 	struct ethhdr *eth;
