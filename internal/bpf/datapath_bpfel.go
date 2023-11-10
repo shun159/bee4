@@ -18,6 +18,13 @@ type datapathArpEntry struct {
 	LastUpdated uint64
 }
 
+type datapathFdbEntry struct {
+	PortNo      uint32
+	LastUpdated uint64
+}
+
+type datapathFdbKey struct{ Macaddr [6]uint8 }
+
 type datapathLpmNhIn4 struct {
 	NhType uint8
 	_      [3]byte
@@ -87,6 +94,7 @@ type datapathProgramSpecs struct {
 // It can be passed ebpf.CollectionSpec.Assign.
 type datapathMapSpecs struct {
 	ArpTable   *ebpf.MapSpec `ebpf:"arp_table"`
+	Fdb        *ebpf.MapSpec `ebpf:"fdb"`
 	L3PortMap  *ebpf.MapSpec `ebpf:"l3_port_map"`
 	NdTable    *ebpf.MapSpec `ebpf:"nd_table"`
 	PortConfig *ebpf.MapSpec `ebpf:"port_config"`
@@ -114,6 +122,7 @@ func (o *datapathObjects) Close() error {
 // It can be passed to loadDatapathObjects or ebpf.CollectionSpec.LoadAndAssign.
 type datapathMaps struct {
 	ArpTable   *ebpf.Map `ebpf:"arp_table"`
+	Fdb        *ebpf.Map `ebpf:"fdb"`
 	L3PortMap  *ebpf.Map `ebpf:"l3_port_map"`
 	NdTable    *ebpf.Map `ebpf:"nd_table"`
 	PortConfig *ebpf.Map `ebpf:"port_config"`
@@ -124,6 +133,7 @@ type datapathMaps struct {
 func (m *datapathMaps) Close() error {
 	return _DatapathClose(
 		m.ArpTable,
+		m.Fdb,
 		m.L3PortMap,
 		m.NdTable,
 		m.PortConfig,

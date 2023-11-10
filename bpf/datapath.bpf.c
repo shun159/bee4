@@ -22,43 +22,6 @@
 #include "datapath_helpers.h"
 #include "datapath_maps.h"
 
-// Retrieves port configuration data from eBPF maps using a given port key.
-// Returns NULL if the port configuration is not found.
-static __always_inline struct port_conf *
-get_port_conf(__u32 port_key)
-{
-    __u32 *pkt_ifidx = bpf_map_lookup_elem(&l3_port_map, &port_key);
-    if (!pkt_ifidx) {
-        bpf_printk("l3_port_map lookup failed for port_key %u\n", port_key);
-        return NULL;
-    }
-
-    struct port_conf *port = bpf_map_lookup_elem(&port_config, pkt_ifidx);
-    if (!port) {
-        bpf_printk("port_config lookup failed for ifidx %u\n", *pkt_ifidx);
-    }
-
-    return port;
-}
-
-static __always_inline struct lpm_nh_in4 *
-get_route_in4(__u32 daddr)
-{
-    struct lpm_nh_in4 *nh;
-    struct route_key_in4 k;
-
-    k.prefix_len = 32;
-    k.addr = daddr;
-
-    nh = (struct lpm_nh_in4 *)bpf_map_lookup_elem(&route_table, &k);
-    if (!nh) {
-        bpf_printk("route_table lookup failed for ip %u\n", daddr);
-        return NULL;
-    }
-
-    return nh;
-}
-
 // Reduces packet size to the minimum, preparing the packet buffer for new data.
 // This is typically used before constructing new packet contents.
 static __always_inline int
@@ -147,24 +110,6 @@ process_bridge_arp_request(struct packet *pkt, __u8 ar_sha[6], __u32 ar_spa, __u
     return 0;
 }
 
-// Processes an ARP reply by updating the ARP table with the sender's MAC and IP
-// address. This information is used for future packet forwarding decisions.
-static __always_inline int
-process_bridge_arp_reply(struct packet *pkt, __u8 ar_sha[6], __u32 ar_spa)
-{
-    struct arp_entry neigh;
-    neigh.last_updated = bpf_ktime_get_ns();
-    memcpy(&neigh.port_no, &pkt->ctx->ingress_ifindex, sizeof(__u32));
-    memcpy(&neigh.macaddr, ar_sha, sizeof(neigh.macaddr));
-
-    if (bpf_map_update_elem(&arp_table, &ar_spa, &neigh, BPF_ANY)) {
-        bpf_printk("arp_table update failed for ip %u\n", ar_spa);
-        return -1;
-    }
-
-    return 0;
-}
-
 // Main function for ARP processing that routes to specific functions for
 // handling ARP requests and replies based on the operation code.
 static __always_inline int
@@ -186,7 +131,7 @@ process_bridge_arp(struct packet *pkt)
     ar_op = bpf_ntohs(arphdr.ar_op);
     switch (ar_op) {
     case ARPOP_REPLY:
-        ret = process_bridge_arp_reply(pkt, ar_sha, ar_spa);
+        ret = put_arp_entry(ar_sha, ar_spa, pkt->ctx->ingress_ifindex);
         break;
     case ARPOP_REQUEST:
         ret = process_bridge_arp_request(pkt, ar_sha, ar_spa, ar_tpa);
@@ -391,7 +336,7 @@ process_forward(struct packet *pkt)
     } else if (pkt->ctx->ingress_ifindex == pkt->egress_port) {
         ret = XDP_TX;
     } else if (pkt->egress_port > 0) {
-        bpf_redirect_map(&tx_port, pkt->egress_port, 0);
+        bpf_redirect_map(&tx_port, pkt->egress_port, BPF_F_EXCLUDE_INGRESS);
         ret = XDP_REDIRECT;
     } else {
         // shouldn't be happen

@@ -21,6 +21,9 @@
 
 #include "bpf_kfuncs.h"
 
+#ifndef __DP_HELPERS__
+#define __DP_HELPERS__
+
 #ifndef memcpy
 #define memcpy(dest, src, n) __builtin_memcpy((dest), (src), (n))
 #endif
@@ -351,3 +354,4 @@ parse_ipv6(struct bpf_dynptr *dynptr, __u64 *offset, struct ipv6hdr *ipv6,
 	return 0;
 }
 
+#endif
