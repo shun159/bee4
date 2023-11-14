@@ -96,6 +96,7 @@ type datapathMapSpecs struct {
 	ArpTable   *ebpf.MapSpec `ebpf:"arp_table"`
 	Fdb        *ebpf.MapSpec `ebpf:"fdb"`
 	L3PortMap  *ebpf.MapSpec `ebpf:"l3_port_map"`
+	NdEntryMap *ebpf.MapSpec `ebpf:"nd_entry_map"`
 	NdTable    *ebpf.MapSpec `ebpf:"nd_table"`
 	PortConfig *ebpf.MapSpec `ebpf:"port_config"`
 	RouteTable *ebpf.MapSpec `ebpf:"route_table"`
@@ -124,6 +125,7 @@ type datapathMaps struct {
 	ArpTable   *ebpf.Map `ebpf:"arp_table"`
 	Fdb        *ebpf.Map `ebpf:"fdb"`
 	L3PortMap  *ebpf.Map `ebpf:"l3_port_map"`
+	NdEntryMap *ebpf.Map `ebpf:"nd_entry_map"`
 	NdTable    *ebpf.Map `ebpf:"nd_table"`
 	PortConfig *ebpf.Map `ebpf:"port_config"`
 	RouteTable *ebpf.Map `ebpf:"route_table"`
@@ -135,6 +137,7 @@ func (m *datapathMaps) Close() error {
 		m.ArpTable,
 		m.Fdb,
 		m.L3PortMap,
+		m.NdEntryMap,
 		m.NdTable,
 		m.PortConfig,
 		m.RouteTable,
