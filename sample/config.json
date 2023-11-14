@@ -2,5 +2,5 @@
     "routes": [{"dst": "192.168.1.0/24", "nexthop": "192.168.3.2"}],
     "rb": {"dev_name": "pkt1", "in4addr": "192.168.0.1/24"},
     "ds": {"dev_name": "veth1"},
-    "br_ifaces": ["veth3"]
+    "br_ifaces": ["veth3", "veth5"]
 }

@@ -4,6 +4,7 @@
 
 ip netns add host1 ## provisioning server on PE
 ip netns add host2 ## host behind the CPE
+ip netns add host3 ## host behind the CPE
 #ip netns add host3 ## the PE router (the AFTR)
 
 
@@ -17,7 +18,7 @@ ip link set dev veth1 up
 ip link set dev veth3 up
 ip link set dev veth5 up
 
-ip link set dev veth5 mtu 1500
+#ip link set dev veth5 mtu 1500
 #ip link set dev veth6 up
 #ip link set dev veth6 mtu 1500
 #ip link set dev veth7 up
@@ -32,7 +33,7 @@ ip link set dev veth5 mtu 1500
 
 ip link set dev veth0 netns host1
 ip link set dev veth2 netns host2
-#ip link set dev veth4 netns host3
+ip link set dev veth4 netns host3
 
 ip netns exec host1 ip link set dev veth0 up
 ip netns exec host1 ip addr add 2001:db8::1/64 dev veth0
@@ -41,6 +42,10 @@ ip netns exec host1 ip addr add fe80::1/64 dev veth0
 ip netns exec host2 ip link set dev veth2 up
 ip netns exec host2 ip addr add 192.168.0.2/24 dev veth2
 ip netns exec host2 ip route add default via 192.168.0.1
+
+ip netns exec host3 ip link set dev veth4 up
+ip netns exec host3 ip addr add 192.168.0.3/24 dev veth4
+ip netns exec host3 ip route add default via 192.168.0.1
 
 #ip netns exec host3 ip addr add 172.16.1.100/24 dev veth4
 #ip netns exec host3 ip addr add 2001:db8::2/64 dev veth4 nodad

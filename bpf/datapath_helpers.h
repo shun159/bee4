@@ -54,7 +54,6 @@
 #define IS_MAC_BMCAST(dst) \
      (((uint8_t *)dst)[0]& 0x1)
 
-
 #define IP_OFFSET_MASK (0x1FFF)
 #define IP_MF (0x2000)
 
@@ -88,7 +87,7 @@ enum egress_type {
     // pass the packet to the normal network stack.
     EGRESS_SLOW_PATH = 0xffffff00,
     // flood the packet to the all port of `br_member` devmap.
-    EGRESS_BR_FLOOD     = 0xfffffffd,
+    EGRESS_BR_FLOOD  = 0xfffffffd,
 };
 
 typedef struct {
@@ -104,9 +103,16 @@ struct packet {
     // metadata fields
     __u16 l3_proto;
     __u8 l4_proto;
-    __u32 egress_port;
+    __u32 ingress_ifindex;
+    __u32 egress_ifindex;
+    
+    struct port_conf *ingress_port;
+    struct port_conf *egress_port;
+
     bool is_frag;
     bool should_be_encaped;
+    bool is_mac_bmcast;
+    bool is_mac_self;
 
     // packet fields
     struct ethhdr *eth;

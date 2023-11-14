@@ -179,6 +179,6 @@ func xdpOptions(prog *ebpf.Program,
 	return link.XDPOptions{
 		Program:   prog,
 		Interface: iface.Index,
-		Flags:     link.XDPGenericMode,
+		Flags:     mode,
 	}
 }

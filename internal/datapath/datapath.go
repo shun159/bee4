@@ -140,6 +140,10 @@ func (dp *Datapath) setupDsLiteIf(c *DatapathConfig) error {
 		return err
 	}
 
+	if err := bpf.AddPort(iface.Index, 0, macaddr, false); err != nil {
+		return fmt.Errorf("failed to config bridging interface: %s: %s", dsl.DevName, err)
+	}
+
 	if err := enableIPv6(dsl.DevName, true); err != nil {
 		return err
 	}
@@ -169,7 +173,7 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	}
 
 	if err := bpf.AddL3Port(iface.Index, 1); err != nil {
-		return err
+		return fmt.Errorf("failed to put interface for irb:%s %s", irb.DevName, err)
 	}
 
 	if err := tun.SetAddress(irb.In4Addr); err != nil {

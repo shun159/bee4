@@ -80,7 +80,7 @@ broadcast_arp_request(struct packet *pkt)
     if (send_arp(pkt, port, daddr, ar_tpa, ARPOP_REQUEST))
         return -1;
 
-    pkt->egress_port = EGRESS_BR_FLOOD;
+    pkt->egress_ifindex = EGRESS_BR_FLOOD;
 
     return 0;
 }
@@ -90,22 +90,18 @@ broadcast_arp_request(struct packet *pkt)
 static __always_inline int
 process_bridge_arp_request(struct packet *pkt, __u8 ar_sha[6], __u32 ar_spa, __u32 ar_tpa)
 {
-    struct port_conf *port = get_port_conf(1);
-    if (!port) {
-        bpf_printk("failed to get port config for sending unicast arp req");
-        return -1;
+    if (ar_tpa != pkt->ingress_port->in4addr) {
+        pkt->egress_ifindex = EGRESS_BR_FLOOD;
+        return 0;
     }
-
-    if (ar_tpa != port->in4addr)
-        return -1;
 
     if (shrink_packet_to_zero(pkt->ctx))
         return -1;
 
-    if (send_arp(pkt, port, ar_sha, ar_spa, ARPOP_REPLY))
+    if (send_arp(pkt, pkt->ingress_port, ar_sha, ar_spa, ARPOP_REPLY))
         return -1;
 
-    pkt->egress_port = pkt->ctx->ingress_ifindex;
+    pkt->egress_ifindex = pkt->ctx->ingress_ifindex;
 
     return 0;
 }
@@ -193,7 +189,7 @@ uplink_set_in4_neigh(struct packet *pkt)
 
     __u32 offset = 0;
     __u32 neigh_key;
-    __u32 egress_port;
+    __u32 egress_ifindex;
     __u32 daddr = pkt->inner_in4->daddr;
 
     nh = get_route_in4(daddr);
@@ -213,18 +209,19 @@ uplink_set_in4_neigh(struct packet *pkt)
     if (!neigh)
         return broadcast_arp_request(pkt);
 
-    egress_port = neigh->port_no;
-    port = bpf_map_lookup_elem(&port_config, &egress_port);
+    egress_ifindex = neigh->port_no;
+    port = bpf_map_lookup_elem(&port_config, &egress_ifindex);
     if (!port) {
-        bpf_printk("uplink_set_in4_neigh: port_config lookup failed for egress_port %u\n",
-                   egress_port);
+        bpf_printk(
+            "uplink_set_in4_neigh: port_config lookup failed for egress_ifindex %u\n",
+            egress_ifindex);
         return -1;
     }
 
     if (set_ethernet(pkt->ptr, &offset, neigh->macaddr, port->macaddr, ETH_P_IP))
         return -1;
 
-    pkt->egress_port = neigh->port_no;
+    pkt->egress_ifindex = neigh->port_no;
 
     return 0;
 }
@@ -307,17 +304,11 @@ process_l2(struct packet *pkt)
 
     pkt->eth = &ethhdr;
     pkt->l3_proto = bpf_ntohs(ethhdr.h_proto);
-
-    return 0;
-}
-
-static __always_inline int
-process_uplink_packet(struct packet *pkt)
-{
-    if (process_l2(pkt))
+    if (put_fdb_entry(ethhdr.h_source, pkt->ingress_ifindex))
         return -1;
-    if (process_uplink_l3(pkt))
-        return -1;
+
+    pkt->is_mac_bmcast = IS_MAC_BMCAST(ethhdr.h_dest);
+    pkt->is_mac_self = MAC_CMP(ethhdr.h_dest, pkt->ingress_port->macaddr);
 
     return 0;
 }
@@ -327,16 +318,16 @@ process_forward(struct packet *pkt)
 {
     int ret;
 
-    if (pkt->egress_port == EGRESS_BR_FLOOD) {
+    if (pkt->egress_ifindex == EGRESS_BR_FLOOD) {
         __u64 f = BPF_F_BROADCAST | BPF_F_EXCLUDE_INGRESS;
         bpf_redirect_map(&tx_port, 0, f);
         ret = XDP_REDIRECT;
-    } else if (pkt->egress_port == EGRESS_SLOW_PATH) {
+    } else if (pkt->egress_ifindex == EGRESS_SLOW_PATH) {
         ret = XDP_PASS;
-    } else if (pkt->ctx->ingress_ifindex == pkt->egress_port) {
+    } else if (pkt->ctx->ingress_ifindex == pkt->egress_ifindex) {
         ret = XDP_TX;
-    } else if (pkt->egress_port > 0) {
-        bpf_redirect_map(&tx_port, pkt->egress_port, BPF_F_EXCLUDE_INGRESS);
+    } else if (pkt->egress_ifindex > 0) {
+        bpf_redirect_map(&tx_port, pkt->egress_ifindex, BPF_F_EXCLUDE_INGRESS);
         ret = XDP_REDIRECT;
     } else {
         // shouldn't be happen
@@ -347,10 +338,43 @@ process_forward(struct packet *pkt)
 }
 
 static __always_inline int
+process_bridge_local_l2(struct packet *pkt)
+{
+    struct fdb_entry *e;
+
+    e = get_fdb_entry(pkt->eth->h_dest);
+    if (!e) {
+        pkt->egress_ifindex = EGRESS_BR_FLOOD;
+        return 0;
+    }
+    pkt->egress_ifindex = e->port_no;
+
+    return 0;
+}
+
+static __always_inline int
+process_uplink_packet(struct packet *pkt)
+{
+    struct fdb_entry *fdb;
+
+    if (process_l2(pkt))
+        return -1;
+    if (process_uplink_l3(pkt))
+        return -1;
+
+    return 0;
+}
+
+static __always_inline int
 process_bridge_packet(struct packet *pkt)
 {
     if (process_l2(pkt))
         return -1;
+
+    if (!(pkt->is_mac_bmcast || pkt->is_mac_self))
+        // TODO: handle bridging packet
+        return process_bridge_local_l2(pkt);
+
     if (process_bridge_l3(pkt))
         return -1;
 
@@ -367,12 +391,21 @@ xdp_bridge_in(struct xdp_md *ctx)
 {
     struct packet pkt = {0};
     struct bpf_dynptr ptr;
+    struct port_conf *port;
+
     __u64 offset = 0;
     int ret;
 
     pkt.ctx = ctx;
     pkt.offset = &offset;
     pkt.ptr = &ptr;
+
+    port = get_port_conf(1);
+    if (!port)
+        return XDP_DROP;
+
+    pkt.ingress_ifindex = ctx->ingress_ifindex;
+    pkt.ingress_port = port;
 
     if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr))
         return XDP_DROP;
@@ -391,12 +424,21 @@ xdp_uplink_in(struct xdp_md *ctx)
 {
     struct packet pkt = {0};
     struct bpf_dynptr ptr;
+    struct port_conf *port;
+
     __u64 offset = 0;
     int ret;
 
     pkt.ctx = ctx;
     pkt.offset = &offset;
     pkt.ptr = &ptr;
+
+    port = get_port_conf(2);
+    if (!port)
+        return XDP_DROP;
+
+    pkt.ingress_ifindex = ctx->ingress_ifindex;
+    pkt.ingress_port = port;
 
     if (bpf_dynptr_from_xdp(ctx, 0, pkt.ptr))
         return XDP_DROP;
