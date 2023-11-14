@@ -15,7 +15,7 @@ $(error Cannot find a vmlinux)
 endif
 
 LDFLAGS := -ldflags="-s -w" -buildvcs=false 
-bin/bee4: $(GO_SOURCES) build-bpf
+bin/bee4: $(GO_SOURCES) vmlinux build-bpf
 	@$(GO) build $(LDFLAGS) -o $@ ./cmd/bee4
 
 .PHONY: vmlinux
@@ -31,3 +31,4 @@ $(BPFDIR)/vmlinux.h:
 .PHONY: clean
 clean:
 	-@$(RM) -f $(BPFDIR)/vmlinux.h
+	-@$(RM) -f $(GOBPFDIR)/*.o

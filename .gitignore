@@ -1,0 +1,3 @@
+bin/
+bpf/vmlinux.h
+internal/bpf/*.o
