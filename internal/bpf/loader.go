@@ -25,7 +25,7 @@ import (
 	"github.com/cilium/ebpf/link"
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang datapath ../../bpf/datapath.bpf.c -- -Wno-compare-distinct-pointer-types -Wno-int-conversion -Wnull-character -g -c -O2 -D__KERNEL__
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang datapath ../../bpf/datapath.bpf.c -- -Wno-compare-distinct-pointer-types -Wno-int-conversion -Wnull-character -g -c -O2 -D__KERNEL__ -I../../bpf/compat/uapi/
 
 var objs *datapathObjects
 var maps *datapathMaps
