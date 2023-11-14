@@ -32,3 +32,4 @@ $(BPFDIR)/vmlinux.h:
 clean:
 	-@$(RM) -f $(BPFDIR)/vmlinux.h
 	-@$(RM) -f $(GOBPFDIR)/*.o
+	-@$(RM) -f $(GOBPFDIR)/datapath_bpf*.go

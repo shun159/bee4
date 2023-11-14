@@ -1,3 +1,4 @@
 bin/
 bpf/vmlinux.h
 internal/bpf/*.o
+internal/bpf/datapath_bpfe*.go

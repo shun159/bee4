@@ -21,7 +21,6 @@
 #include "bpf_kfuncs.h"
 #include "datapath_helpers.h"
 #include "datapath_maps.h"
-#include "datapath_arp.h"
 
 // Reduces packet size to the minimum, preparing the packet buffer for new data.
 // This is typically used before constructing new packet contents.
