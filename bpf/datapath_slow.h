@@ -38,6 +38,18 @@ int tc_pkt1_out(struct __sk_buff *ctx)
 }
 
 SEC("tc")
+int tc_br_member_in(struct __sk_buff *ctx)
+{
+    return TC_ACT_OK;
+}
+
+SEC("tc")
+int tc_br_member_out(struct __sk_buff *ctx)
+{
+    return TC_ACT_OK;
+}
+
+SEC("tc")
 int tc_uplink_in(struct __sk_buff *ctx)
 {
     return TC_ACT_OK;

@@ -25,15 +25,18 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	"github.com/shun159/hoge/internal/bpf"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
 
 type dpIface struct {
-	devname string
-	ifindex int
-	family  int
-	hwaddr  [6]uint8
-	ipaddr  string
+	devname   string
+	ifindex   int
+	family    int
+	hwaddr    [6]uint8
+	ipaddr    string
+	tcQdisc   netlink.Qdisc
+	tcFilters []*netlink.BpfFilter
 }
 
 type Datapath struct {
@@ -80,6 +83,37 @@ func (dp *Datapath) Start() error {
 
 func (dp *Datapath) Close() error {
 	dp.tuntap.Close()
+
+	if err := delQdisc(dp.dsIface.tcQdisc); err != nil {
+		return err
+	}
+	for _, f := range dp.dsIface.tcFilters {
+		if err := delTcFilter(f); err != nil {
+			return err
+		}
+	}
+
+	if err := delQdisc(dp.brIface.tcQdisc); err != nil {
+		return err
+	}
+	for _, f := range dp.brIface.tcFilters {
+		if err := delTcFilter(f); err != nil {
+			return err
+		}
+	}
+
+	for _, iface := range dp.brMember {
+		if err := delQdisc(iface.tcQdisc); err != nil {
+			return err
+		}
+		for _, f := range iface.tcFilters {
+			if err := delTcFilter(f); err != nil {
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 
@@ -130,11 +164,31 @@ func (dp *Datapath) setupDsLiteIf(c *DatapathConfig) error {
 		macaddr[idx] = uint8(b)
 	}
 
+	qdisc, err := setGenericQdisc(iface.Name)
+	if err != nil {
+		return err
+	}
+
+	filters := make([]*netlink.BpfFilter, 0)
+	tcFilter1, err := setTcUplinkIn(iface.Name)
+	if err != nil {
+		return err
+	}
+	filters = append(filters, tcFilter1)
+
+	tcFilter2, err := setTcUplinkOut(iface.Name)
+	if err != nil {
+		return err
+	}
+	filters = append(filters, tcFilter2)
+
 	dp.dsIface = new(dpIface)
 	dp.dsIface.devname = dsl.DevName
 	dp.dsIface.family = unix.AF_INET6
 	dp.dsIface.hwaddr = macaddr
 	dp.dsIface.ipaddr = "::0/0"
+	dp.dsIface.tcQdisc = qdisc
+	dp.dsIface.tcFilters = filters
 
 	if err := bpf.AddL3Port(iface.Index, 2); err != nil {
 		return err
@@ -171,6 +225,24 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	for idx, b := range iface.HardwareAddr {
 		macaddr[idx] = uint8(b)
 	}
+
+	qdisc, err := setGenericQdisc(iface.Name)
+	if err != nil {
+		return err
+	}
+
+	filters := make([]*netlink.BpfFilter, 0)
+	tcFilter1, err := setTcPkt1In(iface.Name)
+	if err != nil {
+		return err
+	}
+	filters = append(filters, tcFilter1)
+
+	tcFilter2, err := setTcPkt1Out(iface.Name)
+	if err != nil {
+		return err
+	}
+	filters = append(filters, tcFilter2)
 
 	if err := bpf.AddL3Port(iface.Index, 1); err != nil {
 		return fmt.Errorf("failed to put interface for irb:%s %s", irb.DevName, err)
@@ -209,6 +281,8 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	dp.brIface.family = unix.AF_INET
 	dp.brIface.hwaddr = macaddr
 	dp.brIface.ipaddr = c.Irb.In4Addr
+	dp.dsIface.tcQdisc = qdisc
+	dp.dsIface.tcFilters = filters
 
 	return nil
 }
@@ -228,6 +302,24 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 			macaddr[idx] = uint8(b)
 		}
 
+		qdisc, err := setGenericQdisc(iface.Name)
+		if err != nil {
+			return err
+		}
+
+		filters := make([]*netlink.BpfFilter, 0)
+		tcFilter1, err := setTcPkt1In(iface.Name)
+		if err != nil {
+			return err
+		}
+		filters = append(filters, tcFilter1)
+
+		tcFilter2, err := setTcPkt1Out(iface.Name)
+		if err != nil {
+			return err
+		}
+		filters = append(filters, tcFilter2)
+
 		if err := bpf.AddPort(iface.Index, 0, macaddr, false); err != nil {
 			return fmt.Errorf("failed to config bridging interface: %s: %s", name, err)
 		}
@@ -241,6 +333,8 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 		briface.ifindex = iface.Index
 		briface.hwaddr = macaddr
 		briface.ipaddr = "0.0.0.0/0"
+		briface.tcQdisc = qdisc
+		briface.tcFilters = filters
 
 		dp.brMember = append(dp.brMember, briface)
 	}

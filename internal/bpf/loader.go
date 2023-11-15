@@ -143,6 +143,54 @@ func AttachXdpBridgeInFn(ifname string) (link.Link, error) {
 	return attachXdp(ifname, prog.XdpBridgeIn)
 }
 
+func GetTcBrMemberIn() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcBrMemberIn, nil
+}
+
+func GetTcBrMemberOut() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcBrMemberOut, nil
+}
+
+func GetTcPkt1In() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcPkt1In, nil
+}
+
+func GetTcPkt1Out() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcPkt1Out, nil
+}
+
+func GetTcUplinkIn() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcUplinkIn, nil
+}
+
+func GetTcUplinkOut() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcUplinkOut, nil
+}
+
 // private functions
 
 func getMap() (*datapathMaps, error) {
