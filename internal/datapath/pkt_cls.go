@@ -17,6 +17,7 @@
 package datapath
 
 import (
+	"fmt"
 	"net"
 
 	"github.com/cilium/ebpf"
@@ -24,6 +25,11 @@ import (
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
+
+type datapathBpfFilter struct {
+	filter *netlink.BpfFilter
+	prog   *ebpf.Program
+}
 
 func setGenericQdisc(ifname string) (netlink.Qdisc, error) {
 	iface, err := net.InterfaceByName(ifname)
@@ -46,7 +52,7 @@ func delQdisc(q netlink.Qdisc) error {
 	return nil
 }
 
-func setTcPkt1In(ifname string) (*netlink.BpfFilter, error) {
+func setTcPkt1In(ifname string) (*datapathBpfFilter, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
 		return nil, err
@@ -58,14 +64,17 @@ func setTcPkt1In(ifname string) (*netlink.BpfFilter, error) {
 	}
 
 	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_INGRESS)
-	if err := netlink.FilterReplace(&f); err != nil {
+	if err := netlink.FilterReplace(f); err != nil {
 		return nil, err
 	}
 
-	return &f, nil
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
 }
 
-func setTcPkt1Out(ifname string) (*netlink.BpfFilter, error) {
+func setTcPkt1Out(ifname string) (*datapathBpfFilter, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
 		return nil, err
@@ -77,14 +86,17 @@ func setTcPkt1Out(ifname string) (*netlink.BpfFilter, error) {
 	}
 
 	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_EGRESS)
-	if err := netlink.FilterReplace(&f); err != nil {
+	if err := netlink.FilterReplace(f); err != nil {
 		return nil, err
 	}
 
-	return &f, nil
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
 }
 
-func setTcBrMemberIn(ifname string) (*netlink.BpfFilter, error) {
+func setTcBrMemberIn(ifname string) (*datapathBpfFilter, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
 		return nil, err
@@ -96,14 +108,17 @@ func setTcBrMemberIn(ifname string) (*netlink.BpfFilter, error) {
 	}
 
 	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_INGRESS)
-	if err := netlink.FilterReplace(&f); err != nil {
+	if err := netlink.FilterReplace(f); err != nil {
 		return nil, err
 	}
 
-	return &f, nil
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
 }
 
-func setTcBrMemberOut(ifname string) (*netlink.BpfFilter, error) {
+func setTcBrMemberOut(ifname string) (*datapathBpfFilter, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
 		return nil, err
@@ -115,14 +130,17 @@ func setTcBrMemberOut(ifname string) (*netlink.BpfFilter, error) {
 	}
 
 	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_EGRESS)
-	if err := netlink.FilterReplace(&f); err != nil {
+	if err := netlink.FilterReplace(f); err != nil {
 		return nil, err
 	}
 
-	return &f, nil
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
 }
 
-func setTcUplinkIn(ifname string) (*netlink.BpfFilter, error) {
+func setTcUplinkIn(ifname string) (*datapathBpfFilter, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
 		return nil, err
@@ -134,14 +152,17 @@ func setTcUplinkIn(ifname string) (*netlink.BpfFilter, error) {
 	}
 
 	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_INGRESS)
-	if err := netlink.FilterReplace(&f); err != nil {
+	if err := netlink.FilterReplace(f); err != nil {
 		return nil, err
 	}
 
-	return &f, nil
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
 }
 
-func setTcUplinkOut(ifname string) (*netlink.BpfFilter, error) {
+func setTcUplinkOut(ifname string) (*datapathBpfFilter, error) {
 	iface, err := net.InterfaceByName(ifname)
 	if err != nil {
 		return nil, err
@@ -153,17 +174,28 @@ func setTcUplinkOut(ifname string) (*netlink.BpfFilter, error) {
 	}
 
 	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_EGRESS)
-	if err := netlink.FilterReplace(&f); err != nil {
+	if err := netlink.FilterReplace(f); err != nil {
 		return nil, err
 	}
 
-	return &f, nil
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
 }
 
-func delTcFilter(f *netlink.BpfFilter) error {
-	if err := netlink.FilterDel(f); err != nil {
+func delTcFilter(f *datapathBpfFilter) error {
+	fmt.Println("del tc filter")
+	if err := netlink.FilterDel(f.filter); err != nil {
+		fmt.Println(err)
 		return err
 	}
+
+	if err := f.prog.Close(); err != nil {
+		fmt.Println(err)
+		return err
+	}
+
 	return nil
 }
 
@@ -183,7 +215,7 @@ func genericQdisc(ifidx int) *netlink.GenericQdisc {
 	return q
 }
 
-func bpfFilter(ifidx int, prog *ebpf.Program, parent int) netlink.BpfFilter {
+func bpfFilter(ifidx int, prog *ebpf.Program, parent int) *netlink.BpfFilter {
 	attr := netlink.FilterAttrs{
 		LinkIndex: ifidx,
 		Parent:    uint32(parent),
@@ -197,5 +229,5 @@ func bpfFilter(ifidx int, prog *ebpf.Program, parent int) netlink.BpfFilter {
 	f.Name = prog.String()
 	f.DirectAction = true
 
-	return *f
+	return f
 }

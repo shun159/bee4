@@ -54,10 +54,6 @@ send_arp(struct packet *pkt, struct port_conf *port, __u8 target_mac[6], __u32 t
         if (write_arp_to_ctx(pkt->ctx, pkt->ptr, &offset, op_code, ar_sha, ar_spa, ar_tha,
                              target_ip))
             return -1;
-    } else if (op_code == ARPOP_REPLY) {
-        if (write_arp_to_ctx(pkt->ctx, pkt->ptr, &offset, op_code, ar_sha, port->in4addr,
-                             target_mac, target_ip))
-            return -1;
     }
 
     return 0;
@@ -95,14 +91,7 @@ process_bridge_arp_request(struct packet *pkt, __u8 ar_sha[6], __u32 ar_spa, __u
         pkt->egress_ifindex = EGRESS_BR_FLOOD;
         return 0;
     }
-
-    if (shrink_packet_to_zero(pkt->ctx))
-        return -1;
-
-    if (send_arp(pkt, pkt->ingress_port, ar_sha, ar_spa, ARPOP_REPLY))
-        return -1;
-
-    pkt->egress_ifindex = pkt->ctx->ingress_ifindex;
+    pkt->egress_ifindex = EGRESS_SLOW_PATH;
 
     return 0;
 }
@@ -129,6 +118,7 @@ process_bridge_arp(struct packet *pkt)
     switch (ar_op) {
     case ARPOP_REPLY:
         ret = put_arp_entry(ar_sha, ar_spa, pkt->ctx->ingress_ifindex);
+        pkt->egress_ifindex = EGRESS_SLOW_PATH;
         break;
     case ARPOP_REQUEST:
         ret = process_bridge_arp_request(pkt, ar_sha, ar_spa, ar_tpa);
@@ -139,12 +129,6 @@ process_bridge_arp(struct packet *pkt)
     }
 
     return ret;
-}
-
-static __always_inline int
-bridge_l3_local_forward(struct packet *pkt)
-{
-    return 0;
 }
 
 static __always_inline int

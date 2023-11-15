@@ -36,7 +36,7 @@ type dpIface struct {
 	hwaddr    [6]uint8
 	ipaddr    string
 	tcQdisc   netlink.Qdisc
-	tcFilters []*netlink.BpfFilter
+	tcFilters []*datapathBpfFilter
 }
 
 type Datapath struct {
@@ -82,37 +82,24 @@ func (dp *Datapath) Start() error {
 }
 
 func (dp *Datapath) Close() error {
-	dp.tuntap.Close()
-
-	if err := delQdisc(dp.dsIface.tcQdisc); err != nil {
-		return err
-	}
-	for _, f := range dp.dsIface.tcFilters {
-		if err := delTcFilter(f); err != nil {
+	for _, iface := range dp.brMember {
+		if err := delQdisc(iface.tcQdisc); err != nil {
+			fmt.Println(err)
 			return err
 		}
+
+	}
+	if err := delQdisc(dp.dsIface.tcQdisc); err != nil {
+		fmt.Println(err)
+		return err
 	}
 
 	if err := delQdisc(dp.brIface.tcQdisc); err != nil {
+		fmt.Println(err)
 		return err
 	}
-	for _, f := range dp.brIface.tcFilters {
-		if err := delTcFilter(f); err != nil {
-			return err
-		}
-	}
 
-	for _, iface := range dp.brMember {
-		if err := delQdisc(iface.tcQdisc); err != nil {
-			return err
-		}
-		for _, f := range iface.tcFilters {
-			if err := delTcFilter(f); err != nil {
-				return err
-			}
-		}
-
-	}
+	dp.tuntap.Close()
 
 	return nil
 }
@@ -169,7 +156,7 @@ func (dp *Datapath) setupDsLiteIf(c *DatapathConfig) error {
 		return err
 	}
 
-	filters := make([]*netlink.BpfFilter, 0)
+	filters := make([]*datapathBpfFilter, 0)
 	tcFilter1, err := setTcUplinkIn(iface.Name)
 	if err != nil {
 		return err
@@ -231,7 +218,7 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 		return err
 	}
 
-	filters := make([]*netlink.BpfFilter, 0)
+	filters := make([]*datapathBpfFilter, 0)
 	tcFilter1, err := setTcPkt1In(iface.Name)
 	if err != nil {
 		return err
@@ -281,8 +268,8 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	dp.brIface.family = unix.AF_INET
 	dp.brIface.hwaddr = macaddr
 	dp.brIface.ipaddr = c.Irb.In4Addr
-	dp.dsIface.tcQdisc = qdisc
-	dp.dsIface.tcFilters = filters
+	dp.brIface.tcQdisc = qdisc
+	dp.brIface.tcFilters = filters
 
 	return nil
 }
@@ -307,14 +294,14 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 			return err
 		}
 
-		filters := make([]*netlink.BpfFilter, 0)
-		tcFilter1, err := setTcPkt1In(iface.Name)
+		filters := make([]*datapathBpfFilter, 0)
+		tcFilter1, err := setTcBrMemberIn(iface.Name)
 		if err != nil {
 			return err
 		}
 		filters = append(filters, tcFilter1)
 
-		tcFilter2, err := setTcPkt1Out(iface.Name)
+		tcFilter2, err := setTcBrMemberOut(iface.Name)
 		if err != nil {
 			return err
 		}

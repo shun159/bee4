@@ -123,12 +123,22 @@ struct {
 
 // BPF map wrapper
 
+static __always_inline __u32 *
+get_l3_port_idx(__u32 port_key)
+{
+    __u32 *ifidx = (__u32 *)bpf_map_lookup_elem(&l3_port_map, &port_key);
+    if (!ifidx)
+        return NULL;
+
+    return ifidx;
+}
+
 // Retrieves port configuration data from eBPF maps using a given port key.
 // Returns NULL if the port configuration is not found.
 static __always_inline struct port_conf *
 get_port_conf(__u32 port_key)
 {
-    __u32 *pkt_ifidx = bpf_map_lookup_elem(&l3_port_map, &port_key);
+    __u32 *pkt_ifidx = get_l3_port_idx(port_key);
     if (!pkt_ifidx) {
         bpf_printk("l3_port_map lookup failed for port_key %u\n", port_key);
         return NULL;
