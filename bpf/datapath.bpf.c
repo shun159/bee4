@@ -147,9 +147,11 @@ process_bridge_in4(struct packet *pkt)
         return -1;
     }
 
-    if (port->in4addr == iph.daddr)
+    if (port->in4addr == iph.daddr) {
         // TODO: Add handler for a packet that destine to slowpath.
-        return -1;
+        pkt->egress_ifindex = EGRESS_SLOW_PATH;
+        return 0;
+    }
 
     // lookup a route for packet that through this router from a local interface
     nh_in4 = get_route_in4(iph.daddr);
