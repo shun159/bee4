@@ -37,10 +37,11 @@ type DsIface struct {
 }
 
 type DatapathConfig struct {
-	Routes   []RoutingEntry `json:"routes"`
-	Irb      RbIface        `json:"rb"`
-	Dslite   DsIface        `json:"ds"`
-	BrMember []string       `json:"br_ifaces"`
+	Routes     []RoutingEntry `json:"routes"`
+	Irb        RbIface        `json:"rb"`
+	Dslite     DsIface        `json:"ds"`
+	BrMember   []string       `json:"br_ifaces"`
+	DhcpConfig string         `json:"dhcp-config-file"`
 }
 
 // private functions

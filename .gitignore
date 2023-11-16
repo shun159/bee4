@@ -1,4 +1,5 @@
 bin/
 bpf/vmlinux.h
+leases.txt
 internal/bpf/*.o
 internal/bpf/datapath_bpfe*.go

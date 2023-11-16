@@ -25,6 +25,7 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	"github.com/shun159/hoge/internal/bpf"
+	"github.com/shun159/hoge/internal/dhcp"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 )
@@ -47,6 +48,7 @@ type Datapath struct {
 	tuntap           *Tun
 	uplink_xdp_link  *link.Link
 	bridge_xdp_links []*link.Link
+	dhcpConfigFile   string
 }
 
 func Open(filename string) (*Datapath, error) {
@@ -78,24 +80,23 @@ func (dp *Datapath) Start() error {
 		dp.bridge_xdp_links = append(dp.bridge_xdp_links, &l)
 	}
 
+	dhcp.Serve(dp.dhcpConfigFile)
+
 	return nil
 }
 
 func (dp *Datapath) Close() error {
 	for _, iface := range dp.brMember {
 		if err := delQdisc(iface.tcQdisc); err != nil {
-			fmt.Println(err)
 			return err
 		}
-
 	}
+
 	if err := delQdisc(dp.dsIface.tcQdisc); err != nil {
-		fmt.Println(err)
 		return err
 	}
 
 	if err := delQdisc(dp.brIface.tcQdisc); err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -122,6 +123,8 @@ func (dp *Datapath) loadConfig(c *DatapathConfig) error {
 	if err := dp.setupIrb(c); err != nil {
 		return err
 	}
+
+	dp.dhcpConfigFile = c.DhcpConfig
 
 	return nil
 }
