@@ -147,7 +147,7 @@ process_bridge_in4(struct packet *pkt)
         return -1;
     }
 
-    if (port->in4addr == iph.daddr) {
+    if ((port->in4addr == iph.daddr) || IS_IP4_BCAST(iph.daddr)) {
         // TODO: Add handler for a packet that destine to slowpath.
         pkt->egress_ifindex = EGRESS_SLOW_PATH;
         return 0;

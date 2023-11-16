@@ -101,7 +101,7 @@ server4:
     # If unset, the server will listen on the broadcast address on all
     # interfaces, equivalent to:
     listen:
-      - "192.168.0.1%pkt1"
+      - "0.0.0.0%pkt1"
         ## - "0.0.0.0"
 
     # In general, listen takes a list of addresses, with the general syntax

@@ -37,22 +37,25 @@
 #endif
 
 #define MAC_CMP(dst, src)  \
-     ((((uint16_t *)dst)[0] == ((uint16_t *)src)[0]) && \
-     (((uint16_t *)dst)[1] == ((uint16_t *)src)[1]) &&  \
-     (((uint16_t *)dst)[2] == ((uint16_t *)src)[2]))  \
+     ((((__u16 *)dst)[0] == ((__u16 *)src)[0]) && \
+     (((__u16 *)dst)[1] == ((__u16 *)src)[1]) &&  \
+     (((__u16 *)dst)[2] == ((__u16 *)src)[2]))  \
 
 #define IS_MAC_ZERO(dst) \
-     ((((uint16_t *)dst)[0] == 0) && \
-     (((uint16_t *)dst)[1] == 0) &&  \
-     (((uint16_t *)dst)[2] == 0))  \
+     ((((__u16 *)dst)[0] == 0) && \
+     (((__u16 *)dst)[1] == 0) &&  \
+     (((__u16 *)dst)[2] == 0))  \
 
 #define IS_MAC_BCAST(dst) \
-     ((((uint16_t *)dst)[0] == 0xffff) && \
-     (((uint16_t *)dst)[1] == 0xffff) &&  \
-     (((uint16_t *)dst)[2] == 0xffff))  \
+     ((((__u16 *)dst)[0] == 0xffff) && \
+     (((__u16 *)dst)[1] == 0xffff) &&  \
+     (((__u16 *)dst)[2] == 0xffff))  \
 
 #define IS_MAC_BMCAST(dst) \
-     (((uint8_t *)dst)[0]& 0x1)
+     (((__u8 *)dst)[0]& 0x1)
+
+#define IS_IP4_BCAST(dst) \
+    (((__u32)dst) == 0xffffffff)
 
 #define IP_OFFSET_MASK (0x1FFF)
 #define IP_MF (0x2000)
