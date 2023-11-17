@@ -5,9 +5,6 @@
 ip netns add host1 ## provisioning server on PE
 ip netns add host2 ## host behind the CPE
 ip netns add host3 ## host behind the CPE
-#ip netns add host3 ## the PE router (the AFTR)
-
-
 
 ip link add veth0 type veth peer name veth1
 ip link add veth2 type veth peer name veth3
@@ -62,30 +59,20 @@ ip netns exec host3 ip route add default via 192.168.0.1
 #
 ip netns exec host1 sysctl -w net.ipv6.conf.all.forwarding=1
 
-#ip netns exec host1 cat <<'EOS' > /tmp/radvd.conf
-#interface veth0 {
+# https://gist.github.com/lambdalisue/ef78bade10890e754c161220f9f2fcec
+# https://zenn.dev/zyun/articles/auto-config-transix-aftr-address
 #
-#    # Send Route Advertisement periodically
-#    AdvSendAdvert on;
-#
-#    # Advertise a prefix used for generate an address with SLAAC
-#    prefix 2001:db8::/64 { };
-#
-#    # Advertise the DNS server with RDNSS (RFC 8106)
-#    RDNSS 2001:db8::1 { };
-#};
-#EOS
-#ip netns exec host1 radvd -C /tmp/radvd.conf
-#
-
+# Run dnsmasq as daemon with ra-stateless and ra-names options
+#   SLAAC enabled, stateless DHCPv6. 
+#   Hosts will get only auto-configured address and get additional configuration from DHCPv6. 
+#   DNS will try to guess the auto-configured addresses.
 ip netns exec host1 dnsmasq \
     --enable-ra \
-    --dhcp-range=::,constructor:veth0,ra-stateless \
-    --dhcp-option=option6:dns-server,[2001:db8::1]  \
-    --dhcp-option=option6:ntp-server,[2001:db8::1]  \
+    --dhcp-range=::,constructor:veth0,ra-stateless,ra-names \
+    --dhcp-option=option6:dns-server,[2001:db8::1] \
+    --dhcp-option=option6:ntp-server,[2001:db8::1] \
     --address=/4over6.info/2001:db8::1 \
     --address=/gw.transix.jp/2001:db8::1 \
     --address=/setup46.transix.jp/2001:db8::1 \
     --txt-record=4over6.info,"v=v6mig-1 url=https://setup46.transix.jp/config t=b" \
-    --interface=veth0 #\
-#    --no-daemon
+    --interface=veth0
