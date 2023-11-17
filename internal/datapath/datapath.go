@@ -66,21 +66,15 @@ func Open(filename string) (*Datapath, error) {
 }
 
 func (dp *Datapath) Start() error {
-	uplink_xdp_link, err := bpf.AttachXdpUplinkInFn(dp.dsIface.devname)
-	if err != nil {
-		return fmt.Errorf("failed to attach uplink_xdp: %s", err)
-	}
-	dp.uplink_xdp_link = &uplink_xdp_link
-
-	for _, iface := range dp.brMember {
-		l, err := bpf.AttachXdpBridgeInFn(iface.devname)
-		if err != nil {
-			return fmt.Errorf("failed to attach bridge_xdp: %s", err)
-		}
-		dp.bridge_xdp_links = append(dp.bridge_xdp_links, &l)
+	if err := dp.attachXdpFn(); err != nil {
+		return err
 	}
 
-	dhcp.Serve(dp.dhcpConfigFile)
+	if err := dp.attachTcFn(); err != nil {
+		return err
+	}
+
+	go dhcp.Serve(dp.dhcpConfigFile)
 
 	return nil
 }
@@ -154,31 +148,11 @@ func (dp *Datapath) setupDsLiteIf(c *DatapathConfig) error {
 		macaddr[idx] = uint8(b)
 	}
 
-	qdisc, err := setGenericQdisc(iface.Name)
-	if err != nil {
-		return err
-	}
-
-	filters := make([]*datapathBpfFilter, 0)
-	tcFilter1, err := setTcUplinkIn(iface.Name)
-	if err != nil {
-		return err
-	}
-	filters = append(filters, tcFilter1)
-
-	tcFilter2, err := setTcUplinkOut(iface.Name)
-	if err != nil {
-		return err
-	}
-	filters = append(filters, tcFilter2)
-
 	dp.dsIface = new(dpIface)
 	dp.dsIface.devname = dsl.DevName
 	dp.dsIface.family = unix.AF_INET6
 	dp.dsIface.hwaddr = macaddr
 	dp.dsIface.ipaddr = "::0/0"
-	dp.dsIface.tcQdisc = qdisc
-	dp.dsIface.tcFilters = filters
 
 	if err := bpf.AddL3Port(iface.Index, 2); err != nil {
 		return err
@@ -215,24 +189,6 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	for idx, b := range iface.HardwareAddr {
 		macaddr[idx] = uint8(b)
 	}
-
-	qdisc, err := setGenericQdisc(iface.Name)
-	if err != nil {
-		return err
-	}
-
-	filters := make([]*datapathBpfFilter, 0)
-	tcFilter1, err := setTcPkt1In(iface.Name)
-	if err != nil {
-		return err
-	}
-	filters = append(filters, tcFilter1)
-
-	tcFilter2, err := setTcPkt1Out(iface.Name)
-	if err != nil {
-		return err
-	}
-	filters = append(filters, tcFilter2)
 
 	if err := bpf.AddL3Port(iface.Index, 1); err != nil {
 		return fmt.Errorf("failed to put interface for irb:%s %s", irb.DevName, err)
@@ -271,8 +227,6 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	dp.brIface.family = unix.AF_INET
 	dp.brIface.hwaddr = macaddr
 	dp.brIface.ipaddr = c.Irb.In4Addr
-	dp.brIface.tcQdisc = qdisc
-	dp.brIface.tcFilters = filters
 
 	return nil
 }
@@ -292,24 +246,6 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 			macaddr[idx] = uint8(b)
 		}
 
-		qdisc, err := setGenericQdisc(iface.Name)
-		if err != nil {
-			return err
-		}
-
-		filters := make([]*datapathBpfFilter, 0)
-		tcFilter1, err := setTcBrMemberIn(iface.Name)
-		if err != nil {
-			return err
-		}
-		filters = append(filters, tcFilter1)
-
-		tcFilter2, err := setTcBrMemberOut(iface.Name)
-		if err != nil {
-			return err
-		}
-		filters = append(filters, tcFilter2)
-
 		if err := bpf.AddPort(iface.Index, 0, macaddr, false); err != nil {
 			return fmt.Errorf("failed to config bridging interface: %s: %s", name, err)
 		}
@@ -323,10 +259,116 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 		briface.ifindex = iface.Index
 		briface.hwaddr = macaddr
 		briface.ipaddr = "0.0.0.0/0"
-		briface.tcQdisc = qdisc
-		briface.tcFilters = filters
 
 		dp.brMember = append(dp.brMember, briface)
+	}
+
+	return nil
+}
+
+func (dp *Datapath) attachXdpFn() error {
+	uplink_xdp_link, err := bpf.AttachXdpUplinkInFn(dp.dsIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach uplink_xdp: %s", err)
+	}
+	dp.uplink_xdp_link = &uplink_xdp_link
+
+	for _, iface := range dp.brMember {
+		l, err := bpf.AttachXdpBridgeInFn(iface.devname)
+		if err != nil {
+			return fmt.Errorf("failed to attach bridge_xdp: %s", err)
+		}
+		dp.bridge_xdp_links = append(dp.bridge_xdp_links, &l)
+	}
+
+	return nil
+}
+
+func (dp *Datapath) attachTcFn() error {
+	if err := dp.attachTcUplinkFn(); err != nil {
+		return fmt.Errorf("failed to attach uplink tc filter: %s", err)
+	}
+
+	if err := dp.attachTcPkt1Fn(); err != nil {
+		return fmt.Errorf("failed to attach pkt1 tc filter: %s", err)
+	}
+
+	if err := dp.attachTcBrMemberFn(); err != nil {
+		return fmt.Errorf("failed to attach bridge member tc filter: %s", err)
+	}
+
+	return nil
+}
+
+func (dp *Datapath) attachTcUplinkFn() error {
+	dp.dsIface.tcFilters = make([]*datapathBpfFilter, 0)
+
+	qdisc, err := setGenericQdisc(dp.dsIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach qdisc: %s", err)
+	}
+	dp.dsIface.tcQdisc = qdisc
+
+	tcFilter1, err := setTcUplinkIn(dp.dsIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach ingress tc: %s", err)
+	}
+	dp.dsIface.tcFilters = append(dp.dsIface.tcFilters, tcFilter1)
+
+	tcFilter2, err := setTcUplinkOut(dp.dsIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach egress tc: %s", err)
+	}
+	dp.dsIface.tcFilters = append(dp.dsIface.tcFilters, tcFilter2)
+
+	return nil
+}
+
+func (dp *Datapath) attachTcPkt1Fn() error {
+	dp.brIface.tcFilters = make([]*datapathBpfFilter, 0)
+
+	qdisc, err := setGenericQdisc(dp.brIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach qdisc: %s", err)
+	}
+	dp.brIface.tcQdisc = qdisc
+
+	tcFilter1, err := setTcPkt1In(dp.brIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach ingress tc: %s", err)
+	}
+	dp.brIface.tcFilters = append(dp.brIface.tcFilters, tcFilter1)
+
+	tcFilter2, err := setTcPkt1Out(dp.brIface.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach egress tc: %s", err)
+	}
+	dp.brIface.tcFilters = append(dp.brIface.tcFilters, tcFilter2)
+
+	return nil
+}
+
+func (dp *Datapath) attachTcBrMemberFn() error {
+	for _, iface := range dp.brMember {
+		iface.tcFilters = make([]*datapathBpfFilter, 0)
+
+		qdisc, err := setGenericQdisc(iface.devname)
+		if err != nil {
+			return fmt.Errorf("failed to attach qdisc: %s", err)
+		}
+		iface.tcQdisc = qdisc
+
+		tcFilter1, err := setTcBrMemberIn(iface.devname)
+		if err != nil {
+			return fmt.Errorf("failed to attach ingress tc: %s", err)
+		}
+		iface.tcFilters = append(iface.tcFilters, tcFilter1)
+
+		tcFilter2, err := setTcBrMemberOut(iface.devname)
+		if err != nil {
+			return fmt.Errorf("failed to attach egress tc: %s", err)
+		}
+		iface.tcFilters = append(iface.tcFilters, tcFilter2)
 	}
 
 	return nil
