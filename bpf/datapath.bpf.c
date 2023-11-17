@@ -257,6 +257,12 @@ process_bridge_l3(struct packet *pkt)
 static __always_inline int
 process_uplink_icmp6(struct packet *pkt)
 {
+    struct icmp6hdr icmp6;
+
+    if (parse_icmpv6(pkt->ptr, pkt->offset, &icmp6))
+        return -1;
+    bpf_printk("icmpv6: type: %d code: %d", icmp6.icmp6_type, icmp6.icmp6_code);
+
     return 0;
 }
 
@@ -297,9 +303,18 @@ process_uplink_l3(struct packet *pkt)
 
     if (pkt->l3_proto != ETH_P_IPV6)
         return -1;
+
     if (parse_ipv6(pkt->ptr, pkt->offset, &ip6hdr, &pkt->l4_proto, &pkt->is_frag))
         return -1;
     pkt->in6 = &ip6hdr;
+
+    if (IS_IP6_MCAST(ip6hdr.daddr.in6_u.u6_addr16)) {
+        pkt->egress_ifindex = EGRESS_SLOW_PATH;
+        return 0;
+    }
+
+    if (process_uplink_l4(pkt))
+        return -1;
 
     return 0;
 }
@@ -369,8 +384,6 @@ process_uplink_packet(struct packet *pkt)
     if (process_l2(pkt))
         return -1;
     if (process_uplink_l3(pkt))
-        return -1;
-    if (process_uplink_l4(pkt))
         return -1;
 
     return 0;

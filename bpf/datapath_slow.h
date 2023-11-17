@@ -119,5 +119,9 @@ int
 tc_uplink_out(struct __sk_buff *ctx)
 {
     bpf_printk("tc_uplink_out");
-    return TC_ACT_OK;
+    __u32 *ifidx = get_l3_port_idx(2);
+    if (!ifidx)
+        return TC_ACT_SHOT;
+
+    return bpf_redirect(*ifidx, BPF_F_INGRESS);
 }

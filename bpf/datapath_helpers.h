@@ -52,6 +52,18 @@
 
 #define IS_IP4_BCAST(dst) (((__u32)dst) == 0xffffffff)
 
+#define IS_IP6_MCAST_ALL_NODES(dst)              \
+    ((bpf_ntohs(((__u16 *)dst)[0]) == 0xff02) && \
+     (bpf_ntohs(((__u16 *)dst)[7]) == 0x0001))
+
+#define IS_IP6_MCAST_ALL_ROUTER(dst)             \
+    ((bpf_ntohs(((__u16 *)dst)[0]) == 0xff02) && \
+     (bpf_ntohs(((__u16 *)dst)[7]) == 0x0002))
+
+#define IS_IP6_MCAST(dst)           \
+    (IS_IP6_MCAST_ALL_NODES(dst) || \
+     IS_IP6_MCAST_ALL_ROUTER(dst))
+
 #define IP_OFFSET_MASK (0x1FFF)
 #define IP_MF (0x2000)
 
@@ -372,6 +384,16 @@ parse_ipv6(struct bpf_dynptr *dynptr, __u64 *offset, struct ipv6hdr *ipv6, uint8
 
     if (!skip_ipv6_extension_headers(dynptr, offset, ipv6, proto, is_fragment))
         return -1;
+
+    return 0;
+}
+
+static __always_inline int
+parse_icmpv6(struct bpf_dynptr *dynptr, __u64 *offset, struct icmp6hdr *icmp6)
+{
+    if (bpf_dynptr_read(icmp6, sizeof(*icmp6), dynptr, *offset, 0))
+        return -1;
+    *offset += sizeof(*icmp6);
 
     return 0;
 }
