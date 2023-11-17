@@ -43,8 +43,8 @@ struct nd_key {
 struct arp_entry {
     __u8 macaddr[6];
     __u32 port_no;
-	__u64 last_updated;
-}__attribute__((packed));
+    __u64 last_updated;
+} __attribute__((packed));
 
 struct fdb_key {
     __u8 macaddr[6];
@@ -53,13 +53,13 @@ struct fdb_key {
 struct fdb_entry {
     __u32 port_no;
     __u64 last_updated;
-}__attribute__((packed));
+} __attribute__((packed));
 
 struct port_conf {
     __u8 macaddr[6];
     __u8 isroutable;
     __u32 in4addr;
-}__attribute__((packed));
+} __attribute__((packed));
 
 struct route_key_in4 {
     __u32 prefix_len;
@@ -67,7 +67,7 @@ struct route_key_in4 {
 };
 
 struct lpm_nh_in4 {
-    __u8  nh_type;
+    __u8 nh_type;
     __u32 addr;
 };
 
@@ -79,24 +79,24 @@ struct {
 } tx_port SEC(".maps");
 
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__type(key, __u32);
-	__type(value, struct port_conf);
-	__uint(max_entries, 256);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, struct port_conf);
+    __uint(max_entries, 256);
 } port_config SEC(".maps");
 
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__type(key, __u32);
-	__type(value, struct arp_entry);
-	__uint(max_entries, 256);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, __u32);
+    __type(value, struct arp_entry);
+    __uint(max_entries, 256);
 } arp_table SEC(".maps");
 
 struct {
-	__uint(type, BPF_MAP_TYPE_HASH);
-	__type(key, struct nd_key);
-	__type(value, struct arp_entry);
-	__uint(max_entries, 256);
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct nd_key);
+    __type(value, struct arp_entry);
+    __uint(max_entries, 256);
 } nd_table SEC(".maps");
 
 struct {
@@ -192,7 +192,7 @@ put_fdb_entry(__u8 *macaddr, __u32 port_no)
 
     e.last_updated = bpf_ktime_get_ns();
     e.port_no = port_no;
-    
+
     if (bpf_map_update_elem(&fdb, &macaddr, &e, BPF_ANY))
         return -1;
 

@@ -26,11 +26,12 @@
 #include "datapath_maps.h"
 
 struct callback_ctx {
-	struct __sk_buff *ctx;
+    struct __sk_buff *ctx;
 };
 
 static __always_inline int
-tc_pkt1_process_broadcast(struct bpf_map *map, __u32 *ifidx, struct port_conf *port, struct callback_ctx *ctx)
+tc_pkt1_process_broadcast(struct bpf_map *map, __u32 *ifidx, struct port_conf *port,
+                          struct callback_ctx *ctx)
 {
     if (port->isroutable)
         return 0;
@@ -50,7 +51,7 @@ tc_pkt1_process_out(struct __sk_buff *ctx)
     struct callback_ctx data;
     struct fdb_entry *fdb;
     __u64 offset = 0;
-    
+
     data.ctx = ctx;
 
     if (bpf_dynptr_from_skb(ctx, 0, &ptr))
@@ -74,20 +75,23 @@ tc_pkt1_process_out(struct __sk_buff *ctx)
 }
 
 SEC("tc")
-int tc_pkt1_in(struct __sk_buff *ctx)
+int
+tc_pkt1_in(struct __sk_buff *ctx)
 {
     // TODO: this TC hook need to be deleted
     return TC_ACT_OK;
 }
 
 SEC("tc")
-int tc_pkt1_out(struct __sk_buff *ctx)
+int
+tc_pkt1_out(struct __sk_buff *ctx)
 {
     return tc_pkt1_process_out(ctx);
 }
 
 SEC("tc")
-int tc_br_member_in(struct __sk_buff *ctx)
+int
+tc_br_member_in(struct __sk_buff *ctx)
 {
     __u32 *pkt_ifidx = get_l3_port_idx(1);
     if (!pkt_ifidx) {
@@ -97,21 +101,24 @@ int tc_br_member_in(struct __sk_buff *ctx)
 }
 
 SEC("tc")
-int tc_br_member_out(struct __sk_buff *ctx)
+int
+tc_br_member_out(struct __sk_buff *ctx)
 {
     bpf_printk("tc_br_member_out");
     return TC_ACT_OK;
 }
 
 SEC("tc")
-int tc_uplink_in(struct __sk_buff *ctx)
+int
+tc_uplink_in(struct __sk_buff *ctx)
 {
     bpf_printk("tc_uplink_in");
     return TC_ACT_OK;
 }
 
 SEC("tc")
-int tc_uplink_out(struct __sk_buff *ctx)
+int
+tc_uplink_out(struct __sk_buff *ctx)
 {
     bpf_printk("tc_uplink_out");
     return TC_ACT_OK;
