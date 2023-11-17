@@ -109,8 +109,7 @@ process_bridge_arp(struct packet *pkt)
     __u32 ar_spa, ar_tpa;
 
     if (parse_arp(pkt->ptr, pkt->offset, &arphdr, ar_sha, &ar_spa, ar_tha, &ar_tpa))
-        ret = -1;
-
+        return -1;
     if (bpf_ntohs(arphdr.ar_pro) != ETH_P_IP)
         return -1;
 
@@ -125,10 +124,10 @@ process_bridge_arp(struct packet *pkt)
         break;
     default:
         bpf_printk("arp: unsupported op: %d received", ar_op);
-        ret = -1;
+        return -1;
     }
 
-    return ret;
+    return 0;
 }
 
 static __always_inline int
@@ -256,6 +255,42 @@ process_bridge_l3(struct packet *pkt)
 }
 
 static __always_inline int
+process_uplink_icmp6(struct packet *pkt)
+{
+    return 0;
+}
+
+static __always_inline int
+process_uplink_ipip6(struct packet *pkt)
+{
+    if (uplink_in6_decap(pkt))
+        return -1;
+    if (push_ethernet(pkt->ptr, pkt->ctx, ETH_P_IP))
+        return -1;
+    if (uplink_set_in4_neigh(pkt))
+        return -1;
+
+    return 0;
+}
+
+static __always_inline int
+process_uplink_l4(struct packet *pkt)
+{
+    __u8 nexthdr = pkt->in6->nexthdr;
+
+    switch (nexthdr) {
+    case IPPROTO_IPIP:
+        return process_uplink_ipip6(pkt);
+    case IPPROTO_ICMPV6:
+        return process_uplink_icmp6(pkt);
+    default:
+        return 0;
+    }
+
+    return 0;
+}
+
+static __always_inline int
 process_uplink_l3(struct packet *pkt)
 {
     struct ipv6hdr ip6hdr;
@@ -264,19 +299,7 @@ process_uplink_l3(struct packet *pkt)
         return -1;
     if (parse_ipv6(pkt->ptr, pkt->offset, &ip6hdr, &pkt->l4_proto, &pkt->is_frag))
         return -1;
-
     pkt->in6 = &ip6hdr;
-    pkt->should_be_encaped = pkt->l4_proto == IPPROTO_IPIP;
-
-    if (pkt->should_be_encaped) {
-        if (uplink_in6_decap(pkt))
-            return -1;
-        if (push_ethernet(pkt->ptr, pkt->ctx, ETH_P_IP))
-            return -1;
-    }
-
-    if (pkt->should_be_encaped)
-        uplink_set_in4_neigh(pkt);
 
     return 0;
 }
@@ -346,6 +369,8 @@ process_uplink_packet(struct packet *pkt)
     if (process_l2(pkt))
         return -1;
     if (process_uplink_l3(pkt))
+        return -1;
+    if (process_uplink_l4(pkt))
         return -1;
 
     return 0;

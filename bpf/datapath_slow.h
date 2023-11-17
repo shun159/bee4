@@ -35,10 +35,8 @@ tc_pkt1_process_broadcast(struct bpf_map *map, __u32 *ifidx, struct port_conf *p
 {
     if (port->isroutable)
         return 0;
-
     if (ctx->ctx->ingress_ifindex == *ifidx)
         return 0;
-
     bpf_clone_redirect(ctx->ctx, *ifidx, BPF_F_INGRESS);
     return 0;
 }
