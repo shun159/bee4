@@ -69,7 +69,7 @@ tc_pkt1_process_out(struct __sk_buff *ctx)
         return TC_ACT_OK;
     }
 
-    return bpf_redirect(fdb->port_no, BPF_F_INGRESS);
+    return bpf_redirect(fdb->port_no, 0);
 }
 
 SEC("tc")
@@ -91,10 +91,12 @@ SEC("tc")
 int
 tc_br_member_in(struct __sk_buff *ctx)
 {
-    __u32 *pkt_ifidx = get_l3_port_idx(1);
-    if (!pkt_ifidx) {
+    __u32 *pkt_ifidx;
+
+    pkt_ifidx = get_l3_port_idx(1);
+    if (!pkt_ifidx)
         return TC_ACT_SHOT;
-    }
+
     return bpf_redirect(*pkt_ifidx, BPF_F_INGRESS);
 }
 
@@ -108,10 +110,35 @@ tc_br_member_out(struct __sk_buff *ctx)
 
 SEC("tc")
 int
+tc_dslite_in(struct __sk_buff *ctx)
+{
+    bpf_printk("tc_dslite_in");
+    return TC_ACT_OK;
+}
+
+SEC("tc") int tc_dslite_out(struct __sk_buff *ctx)
+{
+    __u32 *phy_ifidx;
+    phy_ifidx = get_dslite_phy_idx(0);
+    if (!phy_ifidx) {
+        bpf_printk("tc_dslite_out: phy_ifidx not found");
+        return TC_ACT_SHOT;
+    }
+
+    int ret = bpf_redirect(*phy_ifidx, 0);
+    return ret;
+}
+
+SEC("tc")
+int
 tc_uplink_in(struct __sk_buff *ctx)
 {
-    bpf_printk("tc_uplink_in");
-    return TC_ACT_OK;
+    __u32 *ifidx = get_l3_port_idx(2);
+    if (!ifidx)
+        return TC_ACT_SHOT;
+
+    int ret = bpf_redirect(*ifidx, BPF_F_INGRESS);
+    return ret;
 }
 
 SEC("tc")
@@ -119,9 +146,5 @@ int
 tc_uplink_out(struct __sk_buff *ctx)
 {
     bpf_printk("tc_uplink_out");
-    __u32 *ifidx = get_l3_port_idx(2);
-    if (!ifidx)
-        return TC_ACT_SHOT;
-
-    return bpf_redirect(*ifidx, BPF_F_INGRESS);
+    return TC_ACT_OK;
 }

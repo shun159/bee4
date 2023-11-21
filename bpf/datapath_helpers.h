@@ -52,17 +52,13 @@
 
 #define IS_IP4_BCAST(dst) (((__u32)dst) == 0xffffffff)
 
-#define IS_IP6_MCAST_ALL_NODES(dst)              \
-    ((bpf_ntohs(((__u16 *)dst)[0]) == 0xff02) && \
-     (bpf_ntohs(((__u16 *)dst)[7]) == 0x0001))
+#define IS_IP6_MCAST_ALL_NODES(dst)                                                      \
+    ((bpf_ntohs(((__u16 *)dst)[0]) == 0xff02) && (bpf_ntohs(((__u16 *)dst)[7]) == 0x0001))
 
-#define IS_IP6_MCAST_ALL_ROUTER(dst)             \
-    ((bpf_ntohs(((__u16 *)dst)[0]) == 0xff02) && \
-     (bpf_ntohs(((__u16 *)dst)[7]) == 0x0002))
+#define IS_IP6_MCAST_ALL_ROUTER(dst)                                                     \
+    ((bpf_ntohs(((__u16 *)dst)[0]) == 0xff02) && (bpf_ntohs(((__u16 *)dst)[7]) == 0x0002))
 
-#define IS_IP6_MCAST(dst)           \
-    (IS_IP6_MCAST_ALL_NODES(dst) || \
-     IS_IP6_MCAST_ALL_ROUTER(dst))
+#define IS_IP6_MCAST(dst) (IS_IP6_MCAST_ALL_NODES(dst) || IS_IP6_MCAST_ALL_ROUTER(dst))
 
 #define IP_OFFSET_MASK (0x1FFF)
 #define IP_MF (0x2000)

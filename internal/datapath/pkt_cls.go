@@ -184,6 +184,50 @@ func setTcUplinkOut(ifname string) (*datapathBpfFilter, error) {
 	return dpFilter, nil
 }
 
+func setTcDsliteIn(ifname string) (*datapathBpfFilter, error) {
+	iface, err := net.InterfaceByName(ifname)
+	if err != nil {
+		return nil, err
+	}
+
+	prog, err := bpf.GetTcDsliteIn()
+	if err != nil {
+		return nil, err
+	}
+
+	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_INGRESS)
+	if err := netlink.FilterReplace(f); err != nil {
+		return nil, err
+	}
+
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
+}
+
+func setTcDsliteOut(ifname string) (*datapathBpfFilter, error) {
+	iface, err := net.InterfaceByName(ifname)
+	if err != nil {
+		return nil, err
+	}
+
+	prog, err := bpf.GetTcDsliteOut()
+	if err != nil {
+		return nil, err
+	}
+
+	f := bpfFilter(iface.Index, prog, netlink.HANDLE_MIN_EGRESS)
+	if err := netlink.FilterReplace(f); err != nil {
+		return nil, err
+	}
+
+	dpFilter := new(datapathBpfFilter)
+	dpFilter.filter = f
+	dpFilter.prog = prog
+	return dpFilter, nil
+}
+
 func delTcFilter(f *datapathBpfFilter) error {
 	fmt.Println("del tc filter")
 	if err := netlink.FilterDel(f.filter); err != nil {

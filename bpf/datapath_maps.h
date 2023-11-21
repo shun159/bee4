@@ -121,12 +121,29 @@ struct {
     __uint(max_entries, 4);
 } l3_port_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, __u32);
+    __uint(max_entries, 1);
+} dslite_phy_map SEC(".maps");
+
 // BPF map wrapper
 
 static __always_inline __u32 *
 get_l3_port_idx(__u32 port_key)
 {
     __u32 *ifidx = (__u32 *)bpf_map_lookup_elem(&l3_port_map, &port_key);
+    if (!ifidx)
+        return NULL;
+
+    return ifidx;
+}
+
+static __always_inline __u32 *
+get_dslite_phy_idx(__u32 port_key)
+{
+    __u32 *ifidx = (__u32 *)bpf_map_lookup_elem(&dslite_phy_map, &port_key);
     if (!ifidx)
         return NULL;
 

@@ -261,6 +261,7 @@ process_uplink_icmp6(struct packet *pkt)
 
     if (parse_icmpv6(pkt->ptr, pkt->offset, &icmp6))
         return -1;
+    pkt->egress_ifindex = EGRESS_SLOW_PATH;
     bpf_printk("icmpv6: type: %d code: %d", icmp6.icmp6_type, icmp6.icmp6_code);
 
     return 0;

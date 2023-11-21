@@ -30,6 +30,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const dsliteIface = "dslite0"
+
 type dpIface struct {
 	devname   string
 	ifindex   int
@@ -43,9 +45,11 @@ type dpIface struct {
 type Datapath struct {
 	routes           []RoutingEntry
 	brIface          *dpIface
-	dsIface          *dpIface
+	dsIfacePhy       *dpIface
+	dsIfaceIrb       *dpIface
 	brMember         []*dpIface
-	tuntap           *Tun
+	brTuntap         *Tun
+	dsTuntap         *Tun
 	uplink_xdp_link  *link.Link
 	bridge_xdp_links []*link.Link
 	dhcpConfigFile   string
@@ -86,7 +90,7 @@ func (dp *Datapath) Close() error {
 		}
 	}
 
-	if err := delQdisc(dp.dsIface.tcQdisc); err != nil {
+	if err := delQdisc(dp.dsIfacePhy.tcQdisc); err != nil {
 		return err
 	}
 
@@ -94,7 +98,13 @@ func (dp *Datapath) Close() error {
 		return err
 	}
 
-	dp.tuntap.Close()
+	if err := dp.brTuntap.Close(); err != nil {
+		return fmt.Errorf("failed to close bridge irb interface: %s", err)
+	}
+
+	if err := dp.dsTuntap.Close(); err != nil {
+		return fmt.Errorf("failed to close dslite irb interface: %s", err)
+	}
 
 	return nil
 }
@@ -107,6 +117,10 @@ func (dp *Datapath) loadConfig(c *DatapathConfig) error {
 	}
 
 	if err := dp.setupDsLiteIf(c); err != nil {
+		return err
+	}
+
+	if err := dp.setupDsLiteTapIf(c); err != nil {
 		return err
 	}
 
@@ -148,22 +162,18 @@ func (dp *Datapath) setupDsLiteIf(c *DatapathConfig) error {
 		macaddr[idx] = uint8(b)
 	}
 
-	dp.dsIface = new(dpIface)
-	dp.dsIface.devname = dsl.DevName
-	dp.dsIface.family = unix.AF_INET6
-	dp.dsIface.hwaddr = macaddr
-	dp.dsIface.ipaddr = "::0/0"
-
-	if err := bpf.AddL3Port(iface.Index, 2); err != nil {
-		return err
-	}
+	dp.dsIfacePhy = new(dpIface)
+	dp.dsIfacePhy.devname = dsl.DevName
+	dp.dsIfacePhy.family = unix.AF_BRIDGE
+	dp.dsIfacePhy.hwaddr = macaddr
+	dp.dsIfacePhy.ipaddr = "::0/0"
 
 	if err := bpf.AddPort(iface.Index, 0, macaddr, false); err != nil {
 		return fmt.Errorf("failed to config bridging interface: %s: %s", dsl.DevName, err)
 	}
 
-	if err := enableIPv6(dsl.DevName, true); err != nil {
-		return err
+	if err := bpf.AddDslitePhyIdx(iface.Index); err != nil {
+		return fmt.Errorf("failed to register dslite phy ifidx: %s", err)
 	}
 
 	return nil
@@ -178,7 +188,6 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 
 	// Wait for creation completed
 	time.Sleep(time.Second * 5)
-	enableIPv6(irb.DevName, false)
 
 	iface, err := net.InterfaceByName(irb.DevName)
 	if err != nil {
@@ -222,11 +231,56 @@ func (dp *Datapath) setupIrb(c *DatapathConfig) error {
 	}
 
 	dp.brIface = new(dpIface)
-	dp.tuntap = tun
+	dp.brTuntap = tun
 	dp.brIface.devname = irb.DevName
 	dp.brIface.family = unix.AF_INET
 	dp.brIface.hwaddr = macaddr
 	dp.brIface.ipaddr = c.Irb.In4Addr
+
+	return nil
+}
+
+func (dp *Datapath) setupDsLiteTapIf(c *DatapathConfig) error {
+	tun, err := CreateTun(dsliteIface)
+	if err != nil {
+		return fmt.Errorf("failed to create dslite0: %s", err)
+	}
+
+	// wait for create completed
+	time.Sleep(time.Second * 5)
+
+	iface, err := net.InterfaceByName(dsliteIface)
+	if err != nil {
+		return fmt.Errorf("failed to fetch interface: %s", err)
+	}
+
+	macaddr := [6]uint8{}
+	for idx, b := range iface.HardwareAddr {
+		macaddr[idx] = uint8(b)
+	}
+
+	if err := bpf.AddPort(iface.Index, 0, macaddr, true); err != nil {
+		return fmt.Errorf("failed to config dslite interface: %s: %s", dsliteIface, err)
+	}
+
+	if err := bpf.AddL3Port(iface.Index, 2); err != nil {
+		return fmt.Errorf("failed to put interface for %s %s", dsliteIface, err)
+	}
+
+	if err := tun.Up(); err != nil {
+		return fmt.Errorf("failed to set up on %s: %s", dsliteIface, err)
+	}
+
+	if err := enableIPv6(dsliteIface, true); err != nil {
+		return err
+	}
+
+	dp.dsIfaceIrb = new(dpIface)
+	dp.dsTuntap = tun
+	dp.dsIfaceIrb.devname = dsliteIface
+	dp.dsIfaceIrb.family = unix.AF_INET6
+	dp.dsIfaceIrb.hwaddr = macaddr
+	dp.dsIfaceIrb.ipaddr = c.Irb.In4Addr
 
 	return nil
 }
@@ -256,6 +310,7 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 
 		briface := &dpIface{}
 		briface.devname = name
+		briface.family = unix.AF_BRIDGE
 		briface.ifindex = iface.Index
 		briface.hwaddr = macaddr
 		briface.ipaddr = "0.0.0.0/0"
@@ -267,7 +322,7 @@ func (dp *Datapath) setupBrMembers(c *DatapathConfig) error {
 }
 
 func (dp *Datapath) attachXdpFn() error {
-	uplink_xdp_link, err := bpf.AttachXdpUplinkInFn(dp.dsIface.devname)
+	uplink_xdp_link, err := bpf.AttachXdpUplinkInFn(dp.dsIfacePhy.devname)
 	if err != nil {
 		return fmt.Errorf("failed to attach uplink_xdp: %s", err)
 	}
@@ -289,6 +344,10 @@ func (dp *Datapath) attachTcFn() error {
 		return fmt.Errorf("failed to attach uplink tc filter: %s", err)
 	}
 
+	if err := dp.attachTcDsliteFn(); err != nil {
+		return fmt.Errorf("failed to attach dslite tc filter: %s", err)
+	}
+
 	if err := dp.attachTcPkt1Fn(); err != nil {
 		return fmt.Errorf("failed to attach pkt1 tc filter: %s", err)
 	}
@@ -301,25 +360,49 @@ func (dp *Datapath) attachTcFn() error {
 }
 
 func (dp *Datapath) attachTcUplinkFn() error {
-	dp.dsIface.tcFilters = make([]*datapathBpfFilter, 0)
+	dp.dsIfacePhy.tcFilters = make([]*datapathBpfFilter, 0)
 
-	qdisc, err := setGenericQdisc(dp.dsIface.devname)
+	qdisc, err := setGenericQdisc(dp.dsIfacePhy.devname)
 	if err != nil {
 		return fmt.Errorf("failed to attach qdisc: %s", err)
 	}
-	dp.dsIface.tcQdisc = qdisc
+	dp.dsIfacePhy.tcQdisc = qdisc
 
-	tcFilter1, err := setTcUplinkIn(dp.dsIface.devname)
+	tcFilter1, err := setTcUplinkIn(dp.dsIfacePhy.devname)
 	if err != nil {
 		return fmt.Errorf("failed to attach ingress tc: %s", err)
 	}
-	dp.dsIface.tcFilters = append(dp.dsIface.tcFilters, tcFilter1)
+	dp.dsIfacePhy.tcFilters = append(dp.dsIfacePhy.tcFilters, tcFilter1)
 
-	tcFilter2, err := setTcUplinkOut(dp.dsIface.devname)
+	tcFilter2, err := setTcUplinkOut(dp.dsIfacePhy.devname)
 	if err != nil {
 		return fmt.Errorf("failed to attach egress tc: %s", err)
 	}
-	dp.dsIface.tcFilters = append(dp.dsIface.tcFilters, tcFilter2)
+	dp.dsIfacePhy.tcFilters = append(dp.dsIfacePhy.tcFilters, tcFilter2)
+
+	return nil
+}
+
+func (dp *Datapath) attachTcDsliteFn() error {
+	dp.dsIfaceIrb.tcFilters = make([]*datapathBpfFilter, 0)
+
+	qdisc, err := setGenericQdisc(dp.dsIfaceIrb.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach qdisc: %s", err)
+	}
+	dp.dsIfaceIrb.tcQdisc = qdisc
+
+	tcFilter1, err := setTcDsliteIn(dp.dsIfaceIrb.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach ingress tc: %s", err)
+	}
+	dp.dsIfaceIrb.tcFilters = append(dp.dsIfaceIrb.tcFilters, tcFilter1)
+
+	tcFilter2, err := setTcDsliteOut(dp.dsIfaceIrb.devname)
+	if err != nil {
+		return fmt.Errorf("failed to attach egress tc: %s", err)
+	}
+	dp.dsIfaceIrb.tcFilters = append(dp.dsIfaceIrb.tcFilters, tcFilter2)
 
 	return nil
 }
@@ -378,26 +461,39 @@ func enableIPv6(name string, f bool) error {
 	ipv6(name, f)
 	ipv6Forwarding(name, f)
 	ipv6SLAAC(name, f)
+	ipv6AcceptRA(name, f)
+	ipv6AddrGenMode(name, 3)
 
 	return nil
 }
 
 // IPv6SLAAC enables/disables stateless address auto-configuration (SLAAC) for the interface.
+func ipv6AcceptRA(name string, ctrl bool) error {
+	k := boolToByte(ctrl)
+	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/accept_ra", []byte{k}, 0o644)
+}
+
+// IPv6SLAAC enables/disables stateless address auto-configuration (SLAAC) for the interface.
 func ipv6SLAAC(name string, ctrl bool) error {
 	k := boolToByte(ctrl)
-	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/autoconf", []byte{k}, 0)
+	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/autoconf", []byte{k}, 0o644)
 }
 
 // IPv6Forwarding enables/disables ipv6 forwarding for the interface.
 func ipv6Forwarding(name string, ctrl bool) error {
 	k := boolToByte(ctrl)
-	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/forwarding", []byte{k}, 0)
+	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/forwarding", []byte{k}, 0o644)
+}
+
+func ipv6AddrGenMode(name string, mode int) error {
+	m := byte(mode)
+	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/addr_gen_mode", []byte{m}, 0o644)
 }
 
 // IPv6 enables/disable ipv6 for the interface.
 func ipv6(name string, ctrl bool) error {
 	k := boolToByte(!ctrl)
-	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/disable_ipv6", []byte{k}, 0)
+	return os.WriteFile("/proc/sys/net/ipv6/conf/"+name+"/disable_ipv6", []byte{k}, 0o644)
 }
 
 func boolToByte(x bool) byte {

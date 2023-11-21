@@ -75,6 +75,15 @@ func GetTxPortMap() (*ebpf.Map, error) {
 	return m.TxPort, nil
 }
 
+func GetDslitePhyMap() (*ebpf.Map, error) {
+	m, err := getMap()
+	if err != nil {
+		return nil, err
+	}
+	return m.DslitePhyMap, nil
+
+}
+
 func AddRoute(prefLen, pref uint32, nhType int, nhAddr uint32) error {
 	lpmKey := datapathRouteKeyIn4{prefLen, pref}
 	lpmVal := datapathLpmNhIn4{NhType: uint8(nhType), Addr: nhAddr}
@@ -100,6 +109,17 @@ func AddPort(ifindex int, in4addr uint32, macaddr [6]uint8, routable bool) error
 	val.Isroutable = isroutable
 
 	m, err := GetPortConfigMap()
+	if err != nil {
+		return err
+	}
+	return m.Put(key, val)
+}
+
+func AddDslitePhyIdx(ifindex int) error {
+	key := uint32(0)
+	val := uint32(ifindex)
+
+	m, err := GetDslitePhyMap()
 	if err != nil {
 		return err
 	}
@@ -189,6 +209,22 @@ func GetTcUplinkOut() (*ebpf.Program, error) {
 		return nil, err
 	}
 	return prog.TcUplinkOut, nil
+}
+
+func GetTcDsliteIn() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcDsliteIn, nil
+}
+
+func GetTcDsliteOut() (*ebpf.Program, error) {
+	prog, err := getProgram()
+	if err != nil {
+		return nil, err
+	}
+	return prog.TcDsliteOut, nil
 }
 
 // private functions
