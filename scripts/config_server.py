@@ -1,5 +1,4 @@
 from flask import Flask
-import json
 
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
@@ -13,7 +12,7 @@ data = {
         "dslite"
     ],
     "dslite": {
-        "aftr": "2404:8e00::feed:101"
+        "aftr": "2401:db00::3"
     }
 }
 
@@ -24,4 +23,4 @@ def config():
 
 
 if __name__ == "__main__":
-    app.run(host='::', port=443, ssl_context=('./server.crt', './server.key'))
+    app.run(host='::', port=443, ssl_context=('./scripts/server.crt', './scripts/server.key'))

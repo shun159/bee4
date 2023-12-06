@@ -462,7 +462,7 @@ func enableIPv6(name string, f bool) error {
 	ipv6Forwarding(name, f)
 	ipv6SLAAC(name, f)
 	ipv6AcceptRA(name, f)
-	ipv6AddrGenMode(name, 3)
+	ipv6AddrGenMode(name, 1)
 
 	return nil
 }
